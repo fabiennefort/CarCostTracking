@@ -1,0 +1,35 @@
+# Hält das kostenlose Supabase-Projekt wach (pausiert sonst nach 7 Tagen ohne Nutzung).
+# Läuft montags und donnerstags. Liest URL + Schlüssel direkt aus config.js.
+# Schreibt außerdem ein Datum in .keepalive, damit GitHub den Zeitplan nicht
+# nach 60 Tagen ohne Repo-Aktivität abschaltet.
+name: Supabase wach halten
+
+on:
+  schedule:
+    - cron: '17 6 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Datenbank anpingen
+        run: |
+          URL=$(grep -oP "SUPABASE_URL\s*=\s*'\K[^']+" config.js)
+          KEY=$(grep -oP "SUPABASE_ANON_KEY\s*=\s*'\K[^']+" config.js)
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/rest/v1/categories?select=id&limit=1" \
+            -H "apikey: $KEY")
+          echo "Antwort: $code"
+          test "$code" = "200"
+      - name: Repo aktiv halten
+        run: |
+          date -u +%Y-%m-%dT%H:%MZ > .keepalive
+          git config user.name "keepalive-bot"
+          git config user.email "keepalive@users.noreply.github.com"
+          git add .keepalive
+          git commit -m "keepalive" || exit 0
+          git push
