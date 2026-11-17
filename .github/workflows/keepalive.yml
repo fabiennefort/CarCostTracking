@@ -14,17 +14,30 @@ permissions:
 
 jobs:
   ping:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Datenbank anpingen
         run: |
-          URL=$(grep -oP "SUPABASE_URL\s*=\s*'\K[^']+" config.js)
-          KEY=$(grep -oP "SUPABASE_ANON_KEY\s*=\s*'\K[^']+" config.js)
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/rest/v1/categories?select=id&limit=1" \
-            -H "apikey: $KEY")
-          echo "Antwort: $code"
-          test "$code" = "200"
+          URL=$(grep -oP "SUPABASE_URL\s*=\s*'\K[^']+" config.js || true)
+          KEY=$(grep -oP "SUPABASE_ANON_KEY\s*=\s*'\K[^']+" config.js || true)
+          URL=${URL%/}
+          if [ -z "$URL" ] || [ -z "$KEY" ] || [[ "$URL" == *DEIN-PROJEKT* ]] || [[ "$KEY" == *DEIN-ANON* ]]; then
+            echo "::error::config.js ist noch nicht ausgefüllt (Project URL und Publishable key eintragen)."
+            exit 1
+          fi
+          echo "URL: $URL"
+          echo "Schlüssel beginnt mit: ${KEY:0:15}…"
+          code=$(curl -s -o body.txt -w '%{http_code}' "$URL/rest/v1/categories?select=id&limit=1" -H "apikey: $KEY" || true)
+          echo "Antwort: $code"; head -c 300 body.txt 2>/dev/null || true; echo
+          case "$code" in
+            200) echo "Alles gut – Supabase ist wach." ;;
+            000) echo "::error::Keine Verbindung. Ist die URL in config.js richtig (https://xxxx.supabase.co)?"; exit 1 ;;
+            401|403) echo "::error::Schlüssel abgelehnt. In config.js den Publishable key (sb_publishable_…) eintragen."; exit 1 ;;
+            404) echo "::error::Tabelle nicht gefunden. Wurde schema.sql im SQL-Editor ausgeführt?"; exit 1 ;;
+            5*) echo "::error::Supabase antwortet nicht (Projekt evtl. pausiert). Im Dashboard 'Restore project' klicken."; exit 1 ;;
+            *) echo "::error::Unerwartete Antwort $code"; exit 1 ;;
+          esac
       - name: Repo aktiv halten
         run: |
           date -u +%Y-%m-%dT%H:%MZ > .keepalive
