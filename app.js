@@ -1,5 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+import { ic, iconKey, CAT_ICONS, REM_ICONS } from './icons.js';
 import { computeStats, parseDate, isoDate, kmPerDay, reminderStatus, nextReminder, costView, DEFAULT_FILTER } from './stats.js';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,16 @@ const parseNum = (v) => { if (v === null || v === undefined) return null; const 
 const numIn = (n) => (n === null || n === undefined || n === '' ? '' : String(Number(n)).replace('.', ','));
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 3) | 8).toString(16); }));
 const INTERVALS = { 1: 'monatlich', 3: 'vierteljährlich', 6: 'halbjährlich', 12: 'jährlich' };
+
+// Farbwelten
+const THEMES = [['salbei', 'Salbei', ['#f4f2ee', '#1e6b5c', '#c25f1c']], ['klar', 'Klar', ['#f5f6f8', '#1f5fbf', '#eb6834']], ['graphit', 'Graphit', ['#17191c', '#e2b04a', '#3987e5']]];
+const currentTheme = () => document.documentElement.dataset.theme || 'salbei';
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch { /* egal */ }
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  $$('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', bg));
+}
 
 function toast(msg, ms = 2200) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -134,7 +145,7 @@ function openSheet(title, html, onMount) {
   root.innerHTML = `<div class="backdrop"></div>
     <div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="grab"></div>
-      <h3><span>${esc(title)}</span><button type="button" data-close aria-label="Schließen">✕</button></h3>
+      <h3><span>${esc(title)}</span><button type="button" data-close aria-label="Schließen">${ic('x')}</button></h3>
       <div class="sheet-body">${html}</div>
     </div>`;
   $('.backdrop', root).onclick = closeSheet;
@@ -223,14 +234,14 @@ function startWizard() { closeSheet(); S.wiz = { mode: 'new', step: 1 }; render(
 function renderOnboarding() {
   $('#app').innerHTML = `<div class="wiz welcome">
     <img class="logo" src="icons/icon-192.png" alt="">
-    <h1>Willkommen bei Autokosten 👋</h1>
+    <h1>Willkommen bei Autokosten</h1>
     <p class="sub">Was kostet euer Auto wirklich – pro km, pro Monat, über die ganze Zeit?</p>
     <ul class="feat">
-      <li><span>💶</span><div><b>Alle Kosten an einem Ort</b><br>nach Kategorien, fix oder nutzungsabhängig</div></li>
-      <li><span>⛽</span><div><b>Echter Verbrauch</b><br>aus euren Tankbelegen, über Monate gemittelt</div></li>
-      <li><span>🔔</span><div><b>Nie wieder TÜV verpassen</b><br>Erinnerungen nach Datum oder km</div></li>
-      <li><span>👥</span><div><b>Gemeinsam</b><br>beide tragen ein, beide sehen alles</div></li>
-      <li><span>📷</span><div><b>Erlebnisse</b><br>Fotos von Urlauben und Ausflügen</div></li>
+      <li><span>${ic('wallet')}</span><div><b>Alle Kosten an einem Ort</b><br>nach Kategorien, fix oder nutzungsabhängig</div></li>
+      <li><span>${ic('fuel')}</span><div><b>Echter Verbrauch</b><br>aus euren Tankbelegen, über Monate gemittelt</div></li>
+      <li><span>${ic('bell')}</span><div><b>Fristen im Blick</b><br>TÜV, Ölwechsel und Reifen nach Datum oder km</div></li>
+      <li><span>${ic('users')}</span><div><b>Gemeinsam nutzen</b><br>beide tragen ein, beide sehen alles</div></li>
+      <li><span>${ic('images')}</span><div><b>Erlebnisse</b><br>Fotos von Urlauben und Ausflügen</div></li>
     </ul>
     <div class="btns">
       <button class="btn" id="start">Unser Auto anlegen</button>
@@ -239,17 +250,17 @@ function renderOnboarding() {
     <p class="small muted" style="text-align:center;margin-top:24px">Angemeldet als ${esc(S.session.user.email)} · <button class="linklike" id="logout">Abmelden</button></p>
   </div>`;
   $('#start').onclick = startWizard;
-  $('#code').onclick = () => openSheet('Einladungscode', `<p class="small muted" style="margin-top:0">Den Code bekommst du von jemandem, der das Auto schon nutzt (in der App unter ⚙️ → Gemeinsam nutzen). Er ist 24 Stunden gültig und nur einmal verwendbar.</p>${joinForm()}`, bindJoin);
+  $('#code').onclick = () => openSheet('Einladungscode', `<p class="small muted" style="margin-top:0">Den Code bekommst du von jemandem, der das Auto schon nutzt (in der App unter Einstellungen → Gemeinsam nutzen). Er ist 24 Stunden gültig und nur einmal verwendbar.</p>${joinForm()}`, bindJoin);
   $('#logout').onclick = () => sb.auth.signOut();
 }
 
 const EXTRA_CATS = [
-  { name: 'Bußgelder', icon: '🚨', kind: 'variabel', hint: 'Strafzettel, Blitzer' },
-  { name: 'Mitgliedschaften', icon: '🚑', kind: 'fix', hint: 'ADAC, Automobilclub' },
-  { name: 'Bewohnerparken', icon: '🏠', kind: 'fix', hint: 'Anwohnerparkausweis' },
-  { name: 'Zubehör', icon: '🧰', kind: 'variabel', hint: 'Matten, Halter, Kindersitz' },
-  { name: 'Finanzierung/Leasing', icon: '🏦', kind: 'fix', hint: 'Raten, Zinsen' },
-  { name: 'Erstattungen', icon: '💶', kind: 'einnahme', hint: 'z. B. Versicherung zahlt Schaden' },
+  { name: 'Bußgelder', icon: 'siren', kind: 'variabel', hint: 'Strafzettel, Blitzer' },
+  { name: 'Mitgliedschaften', icon: 'id-card', kind: 'fix', hint: 'ADAC, Automobilclub' },
+  { name: 'Bewohnerparken', icon: 'house', kind: 'fix', hint: 'Anwohnerparkausweis' },
+  { name: 'Zubehör', icon: 'package', kind: 'variabel', hint: 'Matten, Halter, Kindersitz' },
+  { name: 'Finanzierung/Leasing', icon: 'banknote', kind: 'fix', hint: 'Raten, Zinsen' },
+  { name: 'Erstattungen', icon: 'receipt-euro', kind: 'einnahme', hint: 'z. B. Versicherung zahlt Schaden' },
 ];
 const WIZ_STEPS = ['auto', 'fix', 'remind', 'cats', 'share', 'done'];
 const catByName = (part) => S.d.categories.find((c) => c.name.toLowerCase().includes(part.toLowerCase()));
@@ -293,7 +304,7 @@ function renderWizard() {
 
 const WIZ = {
   auto: (c) => ({
-    title: c ? 'Euer Auto' : 'Erzähl mir von eurem Auto 🚗',
+    title: 'Euer Auto',
     sub: 'Ab hier zählt jeder Euro und jeder Kilometer. Ihr habt das Auto schon länger? Dann startet ihr einfach mit einem geschätzten Wert.',
     skip: false,
     html: `
@@ -344,17 +355,17 @@ const WIZ = {
   }),
 
   fix: (c) => ({
-    title: 'Laufende Kosten 🛡️',
+    title: 'Laufende Kosten',
     sub: 'Versicherung und Steuer einmal eintragen – die App zählt jede Zahlung automatisch mit.',
     html: `
-      <div class="card wizcard"><div class="wizlabel">🛡️ Versicherung</div>
+      <div class="card wizcard"><div class="wizlabel">${ic('shield')} Versicherung</div>
         <div class="grid2">
           <label class="f"><span>Betrag je Zahlung (€)</span><input name="ins" inputmode="decimal" placeholder="z. B. 52,30"></label>
           <label class="f"><span>Zahlweise</span><select name="insint">${Object.entries(INTERVALS).map(([m, l]) => `<option value="${m}" ${m === '1' ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         </div>
         <label class="f"><span>Erste Zahlung am</span><input name="insdate" type="date" value="${c.purchase_date}"></label>
         <div class="small muted">Steht auf der Beitragsrechnung.</div></div>
-      <div class="card wizcard"><div class="wizlabel">🏛️ Kfz-Steuer</div>
+      <div class="card wizcard"><div class="wizlabel">${ic('landmark')} Kfz-Steuer</div>
         <div class="grid2">
           <label class="f"><span>Betrag pro Jahr (€)</span><input name="tax" inputmode="decimal" placeholder="z. B. 148"></label>
           <label class="f"><span>Abbuchung am</span><input name="taxdate" type="date" value="${c.purchase_date}"></label>
@@ -373,25 +384,25 @@ const WIZ = {
   }),
 
   remind: (c) => ({
-    title: 'Erinnerungen 🔔',
+    title: 'Erinnerungen',
     sub: 'Die App meldet sich, bevor etwas fällig wird. Alles optional – trag ein, was du weißt.',
     html: `
-      <label class="f"><span>📋 Nächster TÜV (Monat steht auf der Plakette hinten)</span><input name="tuv" type="month" min="${today().slice(0, 7)}"></label>
-      <label class="f"><span>🛢️ Nächster Ölwechsel bei km (Aufkleber im Motorraum)</span><input name="oil" inputmode="numeric" placeholder="z. B. ${fmt(Math.ceil(((Number(c.start_km) || 0) + 15000) / 1000) * 1000)}"></label>
-      <label class="check"><input type="checkbox" name="tires" checked><span>❄️☀️ An Reifenwechsel erinnern (Mitte Oktober & Mitte April)</span></label>
-      <label class="check"><input type="checkbox" name="insc" checked><span>🛡️ Jedes Jahr Anfang November: Versicherung vergleichen (Stichtag 30.11.)</span></label>`,
+      <label class="f"><span>Nächster TÜV</span><input name="tuv" type="month" min="${today().slice(0, 7)}"><small class="help">Der Monat steht auf der Plakette am hinteren Kennzeichen.</small></label>
+      <label class="f"><span>Nächster Ölwechsel bei km</span><input name="oil" inputmode="numeric" placeholder="z. B. ${fmt(Math.ceil(((Number(c.start_km) || 0) + 15000) / 1000) * 1000)}"><small class="help">Steht meist auf einem Aufkleber im Motorraum oder im Serviceheft.</small></label>
+      <label class="check"><input type="checkbox" name="tires" checked><span>An den Reifenwechsel erinnern (Mitte Oktober und Mitte April)</span></label>
+      <label class="check"><input type="checkbox" name="insc" checked><span>Jährlich Anfang November an den Versicherungsvergleich erinnern (Stichtag 30.11.)</span></label>`,
     save: async (f) => {
       const oil = parseNum(f.oil.value);
       if (Number.isNaN(oil)) throw new Error('Bitte km prüfen');
       const cid = (n) => catByName(n)?.id || null;
       const rows = [];
-      if (f.tuv.value) { const [y, m] = f.tuv.value.split('-').map(Number); rows.push({ title: 'TÜV / HU', icon: '📋', category_id: cid('TÜV'), due_date: isoDate(new Date(y, m, 0)), repeat_months: 24 }); }
-      if (oil) rows.push({ title: 'Ölwechsel', icon: '🛢️', category_id: cid('Öl'), due_km: Math.round(oil), repeat_km: 15000, repeat_months: 12 });
+      if (f.tuv.value) { const [y, m] = f.tuv.value.split('-').map(Number); rows.push({ title: 'TÜV / HU', icon: 'clipboard-check', category_id: cid('TÜV'), due_date: isoDate(new Date(y, m, 0)), repeat_months: 24 }); }
+      if (oil) rows.push({ title: 'Ölwechsel', icon: 'droplet', category_id: cid('Öl'), due_km: Math.round(oil), repeat_km: 15000, repeat_months: 12 });
       if (f.tires.checked) {
-        rows.push({ title: 'Winterreifen drauf', icon: '❄️', category_id: cid('Reifen'), due_date: nextOn(10, 15), repeat_months: 12 });
-        rows.push({ title: 'Sommerreifen drauf', icon: '☀️', category_id: cid('Reifen'), due_date: nextOn(4, 15), repeat_months: 12 });
+        rows.push({ title: 'Winterreifen drauf', icon: 'snowflake', category_id: cid('Reifen'), due_date: nextOn(10, 15), repeat_months: 12 });
+        rows.push({ title: 'Sommerreifen drauf', icon: 'sun', category_id: cid('Reifen'), due_date: nextOn(4, 15), repeat_months: 12 });
       }
-      if (f.insc.checked) rows.push({ title: 'Versicherung vergleichen', icon: '🛡️', category_id: cid('Versicherung'), due_date: nextOn(11, 1), repeat_months: 12, note: 'Wechselstichtag ist meist der 30.11.' });
+      if (f.insc.checked) rows.push({ title: 'Versicherung vergleichen', icon: 'shield', category_id: cid('Versicherung'), due_date: nextOn(11, 1), repeat_months: 12, note: 'Wechselstichtag ist meist der 30.11.' });
       if (rows.length) { await q(sb.from('reminders').insert(rows.map((r) => ({ car_id: S.carId, ...r })))); await loadCarData(); }
     },
   }),
@@ -399,11 +410,11 @@ const WIZ = {
   cats: () => {
     const have = new Set(S.d.categories.map((c) => c.name.toLowerCase()));
     return {
-      title: 'Kategorien 🏷️',
-      sub: 'Diese sind schon da: ' + S.d.categories.map((c) => `${c.icon} ${esc(c.name)}`).join(', ') + '. Brauchst du noch mehr?',
+      title: 'Kategorien',
+      sub: 'Diese sind schon da: ' + S.d.categories.filter((c) => !c.archived).map((c) => esc(c.name)).join(', ') + '. Brauchst du noch mehr?',
       html: `<div class="pick">${EXTRA_CATS.filter((x) => !have.has(x.name.toLowerCase())).map((x, i) => `
-          <label class="pickitem"><input type="checkbox" name="x${i}" value="${esc(x.name)}"><span class="pi">${x.icon}</span><span><b>${esc(x.name)}</b><br><span class="small muted">${esc(x.hint)} · ${({ fix: 'Fixkosten', einnahme: 'Einnahme', variabel: 'Nutzung' })[x.kind]}</span></span></label>`).join('')}</div>
-        <p class="small muted" style="margin:10px 2px">Eigene Kategorien kannst du jederzeit unter ⚙️ → Kategorien anlegen.</p>`,
+          <label class="pickitem"><input type="checkbox" name="x${i}" value="${esc(x.name)}"><span class="pi">${ic(x.icon)}</span><span><b>${esc(x.name)}</b><br><span class="small muted">${esc(x.hint)} · ${({ fix: 'Fixkosten', einnahme: 'Einnahme', variabel: 'Nutzung' })[x.kind]}</span></span></label>`).join('')}</div>
+        <p class="small muted" style="margin:10px 2px">Eigene Kategorien kannst du jederzeit unter Einstellungen → Kategorien anlegen.</p>`,
       save: async (f) => {
         const picked = $$('input[type=checkbox]:checked', f).map((i) => EXTRA_CATS.find((x) => x.name === i.value));
         if (picked.length) {
@@ -415,25 +426,25 @@ const WIZ = {
   },
 
   share: (c) => ({
-    title: 'Gemeinsam nutzen 👥',
+    title: 'Gemeinsam nutzen',
     sub: 'Erzeuge einen Einladungscode und schick ihn deiner Partnerin. Sie öffnet die App, registriert sich und tippt auf „Ich habe einen Einladungscode“.',
     html: `<div class="card wizcard" id="invbox">${inviteBox(c)}</div>
-      <p class="small muted" style="margin:10px 2px">Geht auch später unter ⚙️ → Gemeinsam nutzen.</p>`,
+      <p class="small muted" style="margin:10px 2px">Das geht auch später unter Einstellungen → Gemeinsam nutzen.</p>`,
     skipLabel: 'Später',
     bind: (f) => { const upd = () => { $('#invbox', f).innerHTML = inviteBox(car()); bindInviteBox(f, car(), upd); }; bindInviteBox(f, c, upd); },
   }),
 
   done: (c) => ({
-    title: 'Fertig! 🎉',
+    title: 'Alles eingerichtet',
     sub: `„${esc(c.name)}“ ist eingerichtet. Ab jetzt einfach bei jedem Tanken und jeder Rechnung unten auf <b>+</b> tippen.`,
     skip: false,
     next: 'Los geht’s',
-    html: `${isStandalone() ? '' : `<div class="card wizcard"><div class="wizlabel">📲 Tipp: Als App aufs iPhone</div>
+    html: `${isStandalone() ? '' : `<div class="card wizcard"><div class="wizlabel">${ic('smartphone')} Als App auf den Home-Bildschirm</div>
         <div class="small">In Safari unten auf <b>Teilen</b> (Quadrat mit Pfeil) → <b>„Zum Home-Bildschirm“</b>. Danach die App immer über das neue Symbol öffnen.</div></div>`}
       <div class="card wizcard"><div class="wizlabel">So geht’s weiter</div>
-        <div class="small">⛽ <b>Tanken:</b> Betrag, Liter und km-Stand – daraus entsteht euer echter Verbrauch.<br>
-        🧾 <b>Kosten & Einnahmen:</b> Werkstatt, Parken, Spritgeld von Mitfahrern …<br>
-        💶 <b>Auswertung:</b> unter „Kosten“ – mit Chips legst du fest, was mitzählt.</div></div>`,
+        <ul class="steps small"><li><b>Tanken:</b> Betrag, Liter und km-Stand – daraus entsteht euer echter Verbrauch.</li>
+        <li><b>Kosten und Einnahmen:</b> Werkstatt, Parken, Spritgeld von Mitfahrern.</li>
+        <li><b>Auswertung:</b> unter „Kosten“. Mit den Filtern legst du fest, was mitzählt.</li></ul></div>`,
   }),
 };
 
@@ -443,13 +454,13 @@ function renderJoinedWelcome() {
   const st = stats();
   $('#app').innerHTML = `<div class="wiz welcome">
     <img class="logo" src="icons/icon-192.png" alt="">
-    <h1>Willkommen bei „${esc(c.name)}“ 👋</h1>
+    <h1>Willkommen bei „${esc(c.name)}“</h1>
     <p class="sub">Du teilst dir dieses Auto jetzt${others ? ` mit ${others}` : ''}. Alles, was ihr eintragt, sehen beide sofort.</p>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile"><div class="k">Bisher eingetragen</div><div class="v num">${S.d.expenses.length}</div><div class="s">Einträge</div></div>
       <div class="tile"><div class="k">km seit Kauf</div><div class="v num">${fmt(st.kmDriven)}</div><div class="s">Stand ${fmt(st.kmNow)} km</div></div>
     </div>
-    ${isStandalone() ? '' : `<div class="card wizcard"><div class="wizlabel">📲 Als App aufs iPhone</div><div class="small">In Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b>.</div></div>`}
+    ${isStandalone() ? '' : `<div class="card wizcard"><div class="wizlabel">${ic('smartphone')} Als App auf den Home-Bildschirm</div><div class="small">In Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b>.</div></div>`}
     <div class="btns"><button class="btn" id="go">Los geht’s</button></div>
   </div>`;
   $('#go').onclick = () => { S.wiz = null; S.tab = 'home'; S.page = null; render(); };
@@ -491,10 +502,10 @@ function viewGarage(v) {
   const me = S.session.user.id;
   v.innerHTML = `
     <section><div class="list">${S.cars.map((x) => `<button class="row" data-car="${x.id}">
-      <div class="ic">${x.fuel_unit === 'kWh' ? '🔌' : '🚗'}</div>
+      <div class="ic">${ic(x.fuel_unit === 'kWh' ? 'plug-zap' : 'car-front')}</div>
       <div class="main"><div class="t">${esc(x.name)}${x.id === S.carId ? ' <span class="small muted">· ausgewählt</span>' : ''}</div>
       <div class="d">seit ${dDate(x.purchase_date)}${x.sale_date ? ` · verkauft ${dDate(x.sale_date)}` : ''}${x.created_by === me ? '' : ' · geteilt mit dir'}</div></div>
-      <div class="amt">${x.id === S.carId ? '✓' : '›'}</div></button>`).join('')}</div></section>
+      <div class="amt">${ic(x.id === S.carId ? 'check' : 'chevron-right', 'chev-i')}</div></button>`).join('')}</div></section>
     <div class="btns">
       <button class="btn" id="newcar">+ Neues Auto anlegen</button>
       <button class="btn secondary" id="joincar">Mit Einladungscode beitreten</button>
@@ -521,11 +532,11 @@ function viewGarage(v) {
 //  Hauptansicht & Navigation
 // ---------------------------------------------------------------------------
 const TABS = [
-  { id: 'home', icon: '🏠', label: 'Übersicht' },
-  { id: 'costs', icon: '💶', label: 'Kosten' },
+  { id: 'home', icon: 'house', label: 'Übersicht' },
+  { id: 'costs', icon: 'wallet', label: 'Kosten' },
   { id: 'add', icon: '+', label: '' },
-  { id: 'fuel', icon: '⛽', label: 'Verbrauch' },
-  { id: 'album', icon: '📷', label: 'Erlebnisse' },
+  { id: 'fuel', icon: 'fuel', label: 'Verbrauch' },
+  { id: 'album', icon: 'images', label: 'Erlebnisse' },
 ];
 const PAGE_TITLES = { costs: 'Kosten', fuel: 'Verbrauch', album: 'Erlebnisse', settings: 'Einstellungen', reminders: 'Erinnerungen', garage: 'Meine Autos' };
 
@@ -543,15 +554,15 @@ function render() {
   const c = car();
   const key = S.page || S.tab;
   let head;
-  if (S.page) head = `<button class="back" id="back" aria-label="Zurück">‹</button><h1>${PAGE_TITLES[S.page]}</h1>`;
+  if (S.page) head = `<button class="back" id="back" aria-label="Zurück">${ic('chevron-left')}</button><h1>${PAGE_TITLES[S.page]}</h1>`;
   else if (key !== 'home') head = `<h1>${PAGE_TITLES[key]}</h1>`;
-  else head = `<button class="carbtn" data-page="garage" aria-label="Autos verwalten"><h1>${esc(c.name)}</h1><span class="caret">▾</span></button>`;
+  else head = `<button class="carbtn" data-page="garage" aria-label="Autos verwalten"><h1>${esc(c.name)}</h1><span class="caret">${ic('chevron-down')}</span></button>`;
   $('#app').innerHTML = `
-    <header class="top"><div class="ttl">${head}</div>${S.page ? '' : '<button class="gear" id="gear" aria-label="Einstellungen">⚙️</button>'}</header>
+    <header class="top"><div class="ttl">${head}</div>${S.page ? '' : `<button class="gear" id="gear" aria-label="Einstellungen">${ic('settings')}</button>`}</header>
     <main id="view"></main>
     <nav class="tabs">${TABS.map((t) => t.id === 'add'
-      ? `<button data-tab="add" aria-label="Neuer Eintrag"><span class="plus">+</span></button>`
-      : `<button data-tab="${t.id}" class="${!S.page && S.tab === t.id ? 'on' : ''}"><span class="i">${t.icon}</span>${t.label}</button>`).join('')}</nav>`;
+      ? `<button data-tab="add" aria-label="Neuer Eintrag"><span class="plus">${ic('plus')}</span></button>`
+      : `<button data-tab="${t.id}" class="${!S.page && S.tab === t.id ? 'on' : ''}"><span class="i">${ic(t.icon)}</span>${t.label}</button>`).join('')}</nav>`;
   $$('nav.tabs button').forEach((b) => (b.onclick = () => (b.dataset.tab === 'add' ? openAddChooser() : go(b.dataset.tab))));
   $('#gear')?.addEventListener('click', () => openPage('settings'));
   $('#back')?.addEventListener('click', () => { S.page = null; render(); window.scrollTo(0, 0); });
@@ -581,7 +592,7 @@ function setFilter(f) { try { localStorage.setItem(FKEY, JSON.stringify(f)); } c
 const FILTER_CHIPS = [['variabel', 'Nutzung'], ['fix', 'Fixkosten'], ['wertverlust', 'Wertverlust'], ['einnahmen', 'Einnahmen']];
 function filterChips() {
   const f = getFilter();
-  return `<div class="chips fchips" role="group" aria-label="Was soll in die Auswertung?">${FILTER_CHIPS.map(([k, l]) => `<button class="chip toggle ${f[k] ? 'on' : ''}" data-fk="${k}" aria-pressed="${f[k]}">${f[k] ? '✓ ' : ''}${l}</button>`).join('')}</div>`;
+  return `<div class="chips fchips" role="group" aria-label="Was soll in die Auswertung?">${FILTER_CHIPS.map(([k, l]) => `<button class="chip toggle ${f[k] ? 'on' : ''}" data-fk="${k}" aria-pressed="${f[k]}">${f[k] ? ic('check') : ''}${l}</button>`).join('')}</div>`;
 }
 function bindFilterChips(v) {
   $$('[data-fk]', v).forEach((b) => (b.onclick = () => { const f = getFilter(); f[b.dataset.fk] = !f[b.dataset.fk]; setFilter(f); render(); }));
@@ -614,16 +625,16 @@ function viewHome(v) {
         <div class="value num">${st.kmDriven > 0 ? fmt(cv.perKm, 2) : '–'} <small>€/km</small></div>
         <div class="hint">${st.kmDriven <= 0 ? 'Sobald ein neuer km-Stand eingetragen ist, geht’s los.'
           : `${filterLabel(f)}${cv.missingDepreciation ? ' (Restwert fehlt noch)' : ''} · ${fmt(st.kmDriven)} km`}</div>
-        <span class="chev">›</span>
+        <span class="chev">${ic('chevron-right')}</span>
       </button>
     </section>
 
     <section>
-      ${sectionHead('Erinnerungen', '<button class="linklike" data-page="reminders">Alle ›</button>')}
+      ${sectionHead('Erinnerungen', '<button class="linklike" data-page="reminders">Alle</button>')}
       ${rem.length === 0
-        ? `<button class="card tap emptycta" data-page="reminders">🔔 TÜV, Ölwechsel, Reifen … nie wieder verpassen<span class="chev">›</span></button>`
+        ? `<button class="card tap emptycta" data-page="reminders">${ic('bell')}<span>TÜV, Ölwechsel und Reifenwechsel rechtzeitig im Blick behalten</span><span class="chev">${ic('chevron-right')}</span></button>`
         : `<div class="list">${(urgent.length ? urgent.slice(0, 3) : rem.slice(0, 1)).map(reminderRow).join('')}</div>
-           ${urgent.length ? '' : '<div class="small muted" style="margin:6px 4px 0">Gerade ist nichts fällig 👍</div>'}`}
+           ${urgent.length ? '' : '<div class="small muted" style="margin:6px 4px 0">Aktuell ist nichts fällig.</div>'}`}
     </section>
 
     <section class="tiles">
@@ -634,12 +645,12 @@ function viewHome(v) {
     </section>
 
     <section>
-      ${sectionHead('Zuletzt eingetragen', '<button class="linklike" data-go="costs:entries">Alle ›</button>')}
+      ${sectionHead('Zuletzt eingetragen', '<button class="linklike" data-go="costs:entries">Alle</button>')}
       ${entryList(allEntries().slice(0, 3))}
     </section>
 
-    ${lastMoment ? `<section>${sectionHead('Zuletzt erlebt', '<button class="linklike" data-go="album">Album ›</button>')}
-      <button class="card tap memo" data-go="album">${lastPhoto ? `<img data-path="${esc(lastPhoto.path)}" alt="">` : '<div class="ph">📷</div>'}
+    ${lastMoment ? `<section>${sectionHead('Zuletzt erlebt', '<button class="linklike" data-go="album">Album</button>')}
+      <button class="card tap memo" data-go="album">${lastPhoto ? `<img data-path="${esc(lastPhoto.path)}" alt="">` : `<div class="ph">${ic('camera')}</div>`}
         <div><div class="t">${esc(lastMoment.title)}</div><div class="d">${dDate(lastMoment.date)}</div></div></button></section>` : ''}`;
   bindEntryRows(v);
   bindReminderRows(v);
@@ -663,11 +674,11 @@ function costsStats(v) {
   v.innerHTML = `
     ${filterChips()}
     <section style="margin-top:6px"><div class="list">
-      <div class="row${off('variabel')}"><div class="ic" style="color:var(--var)">●</div><div class="main"><div class="t">Nutzungskosten</div><div class="d wrap">Tanken, Reparatur, Reifen … – steigen mit den km</div></div><div class="amt num">${eur(st.variable, 0)}<div class="d wrap">${pk(st.variable)}</div></div></div>
-      <div class="row${off('fix')}"><div class="ic" style="color:var(--fix)">●</div><div class="main"><div class="t">Fixkosten</div><div class="d wrap">${eur(st.fixPerMonth, 0)} pro Monat – fallen auch im Stand an</div></div><div class="amt num">${eur(st.fix, 0)}<div class="d wrap">${pk(st.fix)}</div></div></div>
-      <button class="row${off('wertverlust')}" id="dep"><div class="ic">📉</div><div class="main"><div class="t">Wertverlust</div><div class="d wrap">${st.depreciation === null ? 'Restwert eintragen →' : c.sale_price != null ? `Kauf ${eur(st.purchasePrice, 0)} → Verkauf ${eur(st.remaining, 0)}` : `Kauf ${eur(st.purchasePrice, 0)} → geschätzt ${eur(st.remaining, 0)}`}</div></div><div class="amt num">${st.depreciation === null ? '–' : eur(st.depreciation, 0)}<div class="d wrap">${st.depreciation === null ? '' : pk(st.depreciation)}</div></div></button>
-      <div class="row${off('einnahmen')}"><div class="ic">🤝</div><div class="main"><div class="t">Einnahmen</div><div class="d wrap">${st.income ? 'z. B. Spritgeld von Mitfahrern – senkt die Kosten, nicht den Verbrauch' : 'Noch keine – z. B. Spritgeld von Mitfahrern'}</div></div><div class="amt num pos">${st.income ? `− ${eur(st.income, 0)}` : '–'}<div class="d wrap">${st.income ? pk(st.income) : ''}</div></div></div>
-      <div class="row total"><div class="ic">Σ</div><div class="main"><div class="t">Ergebnis</div><div class="d wrap">${filterLabel(f)}</div></div><div class="amt num">${eur(cv.total, 0)}<div class="d wrap">${pk(cv.total)}</div></div></div>
+      <div class="row${off('variabel')}"><div class="ic"><span class="dot" style="background:var(--var)"></span></div><div class="main"><div class="t">Nutzungskosten</div><div class="d wrap">Tanken, Reparatur, Reifen … – steigen mit den km</div></div><div class="amt num">${eur(st.variable, 0)}<div class="d wrap">${pk(st.variable)}</div></div></div>
+      <div class="row${off('fix')}"><div class="ic"><span class="dot" style="background:var(--fix)"></span></div><div class="main"><div class="t">Fixkosten</div><div class="d wrap">${eur(st.fixPerMonth, 0)} pro Monat – fallen auch im Stand an</div></div><div class="amt num">${eur(st.fix, 0)}<div class="d wrap">${pk(st.fix)}</div></div></div>
+      <button class="row${off('wertverlust')}" id="dep"><div class="ic">${ic('trending-down')}</div><div class="main"><div class="t">Wertverlust</div><div class="d wrap">${st.depreciation === null ? 'Restwert eintragen →' : c.sale_price != null ? `Kauf ${eur(st.purchasePrice, 0)} → Verkauf ${eur(st.remaining, 0)}` : `Kauf ${eur(st.purchasePrice, 0)} → geschätzt ${eur(st.remaining, 0)}`}</div></div><div class="amt num">${st.depreciation === null ? '–' : eur(st.depreciation, 0)}<div class="d wrap">${st.depreciation === null ? '' : pk(st.depreciation)}</div></div></button>
+      <div class="row${off('einnahmen')}"><div class="ic">${ic('hand-coins')}</div><div class="main"><div class="t">Einnahmen</div><div class="d wrap">${st.income ? 'z. B. Spritgeld von Mitfahrern – senkt die Kosten, nicht den Verbrauch' : 'Noch keine – z. B. Spritgeld von Mitfahrern'}</div></div><div class="amt num pos">${st.income ? `− ${eur(st.income, 0)}` : '–'}<div class="d wrap">${st.income ? pk(st.income) : ''}</div></div></div>
+      <div class="row total"><div class="ic">${ic('sigma')}</div><div class="main"><div class="t">Ergebnis</div><div class="d wrap">${filterLabel(f)}</div></div><div class="amt num">${eur(cv.total, 0)}<div class="d wrap">${pk(cv.total)}</div></div></div>
     </div>
     <div class="small muted" style="margin:6px 4px 0">${fmt(st.kmDriven)} km in ${fmt(st.months, 0)} Monaten · ${eur(cv.perMonth, 0)} pro Monat. Tippe oben auf die Chips, um Bestandteile ein- oder auszublenden – die Übersicht rechnet genauso.</div></section>
     <section><h2>Kosten pro Monat</h2><div class="card">${monthlyChart(st.monthly, f, st.income > 0)}</div></section>
@@ -689,7 +700,7 @@ function costsEntries(v) {
   v.innerHTML = `
     <div class="chips">
       <button class="chip ${S.filter === 'all' ? 'on' : ''}" data-f="all">Alle</button>
-      ${cats.map((c) => `<button class="chip ${S.filter === c.id ? 'on' : ''}" data-f="${c.id}">${esc(c.icon)} ${esc(c.name)}</button>`).join('')}
+      ${cats.map((c) => `<button class="chip ${S.filter === c.id ? 'on' : ''}" data-f="${c.id}">${esc(c.name)}</button>`).join('')}
     </div>
     <div class="small muted" style="margin:0 4px 8px">${items.length} ${items.length === 1 ? 'Eintrag' : 'Einträge'}${sum ? ` · Kosten ${eur(sum)}` : ''}${inc ? ` · Einnahmen ${eur(inc)}` : ''}</div>
     ${entryList(items)}
@@ -705,9 +716,9 @@ function costsContracts(v) {
   const isEnded = (k) => k.end_date && parseDate(k.end_date) < new Date();
   const running = st.contracts.filter((k) => !isEnded(k)), ended = st.contracts.filter(isEnded);
   const perMonth = running.reduce((a, k) => a + (catById(k.category_id)?.kind === 'einnahme' ? -1 : 1) * k.perMonth, 0);
-  const row = (k) => `<button class="row" data-k="${k.id}"><div class="ic">${esc(catById(k.category_id)?.icon || '🔁')}</div><div class="main"><div class="t">${esc(k.name)}</div><div class="d">${eur(k.amount)} ${INTERVALS[k.interval_months]} · ab ${dDate(k.start_date)}${k.end_date ? ` bis ${dDate(k.end_date)}` : ''}</div></div><div class="amt num">${eur(k.perMonth)}<div class="d">pro Monat</div></div></button>`;
+  const row = (k) => `<button class="row" data-k="${k.id}"><div class="ic">${ic(catById(k.category_id)?.icon || 'repeat')}</div><div class="main"><div class="t">${esc(k.name)}</div><div class="d">${eur(k.amount)} ${INTERVALS[k.interval_months]} · ab ${dDate(k.start_date)}${k.end_date ? ` bis ${dDate(k.end_date)}` : ''}</div></div><div class="amt num">${eur(k.perMonth)}<div class="d">pro Monat</div></div></button>`;
   v.innerHTML = `
-    <p class="small muted" style="margin:4px 4px 12px">Versicherung, Steuer & Co. einmal anlegen – die Zahlungen zählen automatisch mit. Ändert sich der Beitrag: antippen → „Betrag ändert sich ab …“.</p>
+    <p class="small muted" style="margin:4px 4px 12px">Versicherung, Steuer & Co. einmal anlegen – die Zahlungen zählen automatisch mit. Ändert sich der Beitrag, den Eintrag antippen und „Betrag ändert sich ab …“ wählen.</p>
     <section>${sectionHead('Laufend', running.length ? `<span class="small muted num">${eur(perMonth)} / Monat</span>` : '')}
       <div class="list">${running.length ? running.map(row).join('') : '<div class="empty">z. B. Versicherung, Kfz-Steuer, ADAC</div>'}</div>
       <div class="btns"><button class="btn secondary" id="addk">+ Wiederkehrende Kosten</button></div></section>
@@ -848,14 +859,14 @@ function categoryList(st, f = DEFAULT_FILTER) {
   const rows = st.byCategory.filter((r) => r.sum > 0 && r.kind !== 'einnahme' && (r.kind === 'fix' ? f.fix : f.variabel));
   if (!rows.length) return '<div class="list"><div class="empty">Keine Kosten in der Auswahl.</div></div>';
   const max = rows[0].sum, total = rows.reduce((a, r) => a + r.sum, 0);
-  return `<div class="list">${rows.map((r) => `<div class="row"><div class="ic">${esc(r.icon)}</div>
+  return `<div class="list">${rows.map((r) => `<div class="row"><div class="ic">${ic(r.icon)}</div>
     <div class="main"><div class="t">${esc(r.name)} <span class="small muted">· ${r.kind === 'fix' ? 'fix' : 'Nutzung'}</span></div>
     <div class="catbar"><i style="width:${(r.sum / max) * 100}%"></i></div></div>
     <div class="amt num">${eur(r.sum, 0)}<div class="d">${fmt((r.sum / total) * 100)} %${st.kmDriven ? ` · ${fmt(r.sum / st.kmDriven * 100, 1)} ct/km` : ''}</div></div></div>`).join('')}</div>`;
 }
 function incomeList(st) {
   const rows = st.byCategory.filter((r) => r.kind === 'einnahme' && r.sum > 0);
-  return `<div class="list">${rows.map((r) => `<div class="row"><div class="ic">${esc(r.icon)}</div><div class="main"><div class="t">${esc(r.name)}</div><div class="d">${r.count} ${r.count === 1 ? 'Eintrag' : 'Einträge'}</div></div><div class="amt num pos">+ ${eur(r.sum, 0)}</div></div>`).join('')}</div>`;
+  return `<div class="list">${rows.map((r) => `<div class="row"><div class="ic">${ic(r.icon)}</div><div class="main"><div class="t">${esc(r.name)}</div><div class="d">${r.count} ${r.count === 1 ? 'Eintrag' : 'Einträge'}</div></div><div class="amt num pos">+ ${eur(r.sum, 0)}</div></div>`).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -871,7 +882,7 @@ function entryList(items) {
   const u = unit();
   return `<div class="list">${items.map((it) => {
     if (it.type === 'km') {
-      return `<button class="row" data-km="${it.o.id}"><div class="ic">🛣️</div><div class="main"><div class="t">km-Stand</div><div class="d">${dDate(it.date)}</div></div><div class="amt num">${fmt(it.o.km)} km</div></button>`;
+      return `<button class="row" data-km="${it.o.id}"><div class="ic">${ic('gauge')}</div><div class="main"><div class="t">km-Stand</div><div class="d">${dDate(it.date)}</div></div><div class="amt num">${fmt(it.o.km)} km</div></button>`;
     }
     const e = it.e, c = catById(e.category_id) || { name: '–', icon: '•' };
     const bits = [dDate(e.date)];
@@ -879,7 +890,7 @@ function entryList(items) {
     else if (e.km) bits.push(`${fmt(e.km)} km`);
     if (e.comment) bits.push(esc(e.comment));
     const inc = c.kind === 'einnahme';
-    return `<button class="row" data-exp="${e.id}"><div class="ic">${esc(c.icon)}</div><div class="main"><div class="t">${esc(c.name)}${e.receipt_path ? ' 📎' : ''}</div><div class="d">${bits.join(' · ')}</div></div><div class="amt num${inc ? ' pos' : ''}">${inc ? '+ ' : ''}${eur(e.amount)}</div></button>`;
+    return `<button class="row" data-exp="${e.id}"><div class="ic">${ic(c.icon)}</div><div class="main"><div class="t">${esc(c.name)}${e.receipt_path ? ic('paperclip', 'inl') : ''}</div><div class="d">${bits.join(' · ')}</div></div><div class="amt num${inc ? ' pos' : ''}">${inc ? '+ ' : ''}${eur(e.amount)}</div></button>`;
   }).join('')}</div>`;
 }
 function bindEntryRows(root) {
@@ -894,12 +905,12 @@ function bindEntryRows(root) {
 // ---------------------------------------------------------------------------
 function openAddChooser() {
   openSheet('Neuer Eintrag', `<div class="choose">
-    <button data-a="fuel"><span class="i">⛽</span>${car().fuel_unit === 'kWh' ? 'Laden' : 'Tanken'}</button>
-    <button data-a="exp"><span class="i">🧾</span>Kosten</button>
-    <button data-a="km"><span class="i">🛣️</span>km-Stand</button>
-    <button data-a="inc"><span class="i">🤝</span>Einnahme</button>
-    <button data-a="moment"><span class="i">📷</span>Erlebnis</button>
-    <button data-a="rem"><span class="i">🔔</span>Erinnerung</button>
+    <button data-a="fuel"><span class="i">${ic(car().fuel_unit === 'kWh' ? 'plug-zap' : 'fuel')}</span>${car().fuel_unit === 'kWh' ? 'Laden' : 'Tanken'}</button>
+    <button data-a="exp"><span class="i">${ic('receipt')}</span>Kosten</button>
+    <button data-a="km"><span class="i">${ic('gauge')}</span>km-Stand</button>
+    <button data-a="inc"><span class="i">${ic('hand-coins')}</span>Einnahme</button>
+    <button data-a="moment"><span class="i">${ic('camera')}</span>Erlebnis</button>
+    <button data-a="rem"><span class="i">${ic('bell')}</span>Erinnerung</button>
   </div>`, (b) => {
     $$('[data-a]', b).forEach((x) => (x.onclick = () => ({ fuel: () => openFuel(), exp: () => openExpense(), km: () => openKm(), inc: () => openExpense(null, 'income'), moment: () => openMoment(), rem: () => openReminder() })[x.dataset.a]()));
   });
@@ -908,8 +919,12 @@ const lastKm = () => computeStats({ car: car(), ...S.d }).kmNow;
 
 function receiptField(e) {
   return `<div class="f"><span>Beleg (optional)</span>
-    <div class="thumbs" id="rc">${e?.receipt_path ? `<div class="th"><img data-path="${esc(e.receipt_path)}" alt="Beleg"><button type="button" class="x" id="rcx">✕</button></div>` : ''}</div>
-    <label class="filebtn">📎 Beleg fotografieren / auswählen<input type="file" name="receipt" accept="image/*"></label><div class="calc" id="rcname"></div></div>`;
+    <div class="thumbs" id="rc">${e?.receipt_path ? `<div class="th"><img data-path="${esc(e.receipt_path)}" alt="Beleg"><button type="button" class="x" id="rcx" aria-label="Beleg entfernen">${ic('x')}</button></div>` : ''}</div>
+    <label class="filebtn">${ic('paperclip')} Beleg fotografieren oder auswählen<input type="file" name="receipt" accept="image/*"></label><div class="calc" id="rcname"></div></div>`;
+}
+function iconPicker(list, current) {
+  if (!list.includes(current)) list = [current, ...list];
+  return `<div class="f"><span class="flabel">Symbol</span><div class="iconpick" role="radiogroup">${list.map((k) => `<label title="${k}"><input type="radio" name="icon" value="${k}" ${k === current ? 'checked' : ''}>${ic(k)}</label>`).join('')}</div></div>`;
 }
 function deleteBtn(e) { return e ? '<button type="button" class="btn danger" id="del">Eintrag löschen</button>' : ''; }
 
@@ -950,7 +965,7 @@ function openFuel(e) {
 async function ensureIncomeCategory() {
   let c = activeCats().find((x) => x.kind === 'einnahme');
   if (!c) {
-    c = await q(sb.from('categories').insert({ car_id: S.carId, name: 'Spritgeld (Mitfahrer)', kind: 'einnahme', icon: '🤝', sort: 300 }).select('*').single());
+    c = await q(sb.from('categories').insert({ car_id: S.carId, name: 'Spritgeld (Mitfahrer)', kind: 'einnahme', icon: 'hand-coins', sort: 300 }).select('*').single());
     S.d.categories.push(c);
   }
   return c;
@@ -968,7 +983,7 @@ function openExpense(e, mode) {
   const title = income ? (e ? 'Einnahme bearbeiten' : 'Einnahme erfassen') : (e ? 'Kosten bearbeiten' : 'Kosten erfassen');
   openSheet(title, `<form id="exp">
     ${income ? '<p class="small muted" style="margin:-4px 2px 12px">Einnahmen senken die Kosten pro km (abschaltbar in der Auswertung), den Verbrauch aber nicht.</p>' : ''}
-    <label class="f"><span>${income ? 'Art der Einnahme' : 'Kategorie'}</span><select name="cat">${cats.map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>${income ? 'Art der Einnahme' : 'Kategorie'}</span><select name="cat">${cats.map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
     <div class="grid2">
       <label class="f"><span>Betrag (€)</span><input name="amount" inputmode="decimal" value="${numIn(e?.amount)}" required></label>
       <label class="f"><span>Datum</span><input name="date" type="date" value="${e?.date ?? today()}" required></label>
@@ -1006,7 +1021,7 @@ function bindExpenseCommon(b, form, e, collect) {
   const x = $('#rcx', b);
   if (x) x.onclick = () => { removeReceipt = true; $('#rc', b).innerHTML = ''; };
   $('#rc img', b)?.addEventListener('click', (ev) => viewPhoto(ev.target.dataset.path));
-  if (form.receipt) form.receipt.onchange = () => { $('#rcname', b).textContent = form.receipt.files[0] ? '✓ Foto ausgewählt' : ''; };
+  if (form.receipt) form.receipt.onchange = () => { $('#rcname', b).textContent = form.receipt.files[0] ? 'Foto ausgewählt' : ''; };
   form.onsubmit = (ev) => {
     ev.preventDefault();
     submitWith(form, async () => {
@@ -1086,8 +1101,8 @@ function openMoment(m) {
       <label class="f"><span>km-Stand (optional)</span><input name="km" inputmode="numeric" value="${m?.km ?? ''}"></label>
     </div>
     <label class="f"><span>Notiz (optional)</span><textarea name="text">${esc(m?.text)}</textarea></label>
-    <div class="f"><span>Fotos</span><div class="thumbs" id="th">${existing.map((p) => `<div class="th" data-id="${p.id}"><img data-path="${esc(p.path)}" alt=""><button type="button" class="x">✕</button></div>`).join('')}</div>
-    <label class="filebtn">📷 Fotos hinzufügen<input type="file" name="files" accept="image/*" multiple></label></div>
+    <div class="f"><span>Fotos</span><div class="thumbs" id="th">${existing.map((p) => `<div class="th" data-id="${p.id}"><img data-path="${esc(p.path)}" alt=""><button type="button" class="x" aria-label="Foto entfernen">${ic('x')}</button></div>`).join('')}</div>
+    <label class="filebtn">${ic('image-plus')} Fotos hinzufügen<input type="file" name="files" accept="image/*" multiple></label></div>
     <div class="calc" id="prog"></div>
     <div class="btns"><button class="btn" type="submit">Speichern</button>${m ? '<button type="button" class="btn danger" id="del">Erlebnis löschen</button>' : ''}</div>
   </form>`, (b) => {
@@ -1140,17 +1155,17 @@ function viewSettings(v) {
   const me = S.session.user;
   v.innerHTML = `
     <section><h2>Auto</h2><div class="list">
-      <button class="row" id="editcar"><div class="ic">🚗</div><div class="main"><div class="t">${esc(c.name)}</div><div class="d">Gekauft ${dDate(c.purchase_date)} · ${eur(c.purchase_price, 0)} · ${fmt(c.start_km)} km</div></div><div class="amt">›</div></button>
-      <button class="row" id="editval"><div class="ic">📉</div><div class="main"><div class="t">${c.sale_price != null ? 'Verkauft' : 'Restwert / Verkauf'}</div><div class="d">${c.sale_price != null ? `${dDate(c.sale_date)} für ${eur(c.sale_price, 0)}` : c.residual_value != null ? `Geschätzt ${eur(c.residual_value, 0)}` : 'Noch nicht eingetragen'}</div></div><div class="amt">›</div></button>
+      <button class="row" id="editcar"><div class="ic">${ic('car-front')}</div><div class="main"><div class="t">${esc(c.name)}</div><div class="d">Gekauft ${dDate(c.purchase_date)} · ${eur(c.purchase_price, 0)} · ${fmt(c.start_km)} km</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
+      <button class="row" id="editval"><div class="ic">${ic('trending-down')}</div><div class="main"><div class="t">${c.sale_price != null ? 'Verkauft' : 'Restwert / Verkauf'}</div><div class="d">${c.sale_price != null ? `${dDate(c.sale_date)} für ${eur(c.sale_price, 0)}` : c.residual_value != null ? `Geschätzt ${eur(c.residual_value, 0)}` : 'Noch nicht eingetragen'}</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
     </div></section>
 
     <section><h2>Planen</h2><div class="list">
-      <button class="row" data-page="reminders"><div class="ic">🔔</div><div class="main"><div class="t">Erinnerungen</div><div class="d">TÜV, Ölwechsel, Reifenwechsel …</div></div><div class="amt">›</div></button>
-      <button class="row" data-go="costs:contracts"><div class="ic">🔁</div><div class="main"><div class="t">Wiederkehrende Kosten</div><div class="d">Versicherung, Steuer & Co.</div></div><div class="amt">›</div></button>
+      <button class="row" data-page="reminders"><div class="ic">${ic('bell')}</div><div class="main"><div class="t">Erinnerungen</div><div class="d">TÜV, Ölwechsel, Reifenwechsel …</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
+      <button class="row" data-go="costs:contracts"><div class="ic">${ic('repeat')}</div><div class="main"><div class="t">Wiederkehrende Kosten</div><div class="d">Versicherung, Steuer & Co.</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
     </div></section>
 
     <section><h2>Kategorien</h2><div class="list">
-      ${[...S.d.categories].sort((a, b) => a.archived - b.archived || a.sort - b.sort).map((k) => `<button class="row" data-cat="${k.id}"><div class="ic">${esc(k.icon)}</div><div class="main"><div class="t">${esc(k.name)}${k.archived ? ' <span class="small muted">· ausgeblendet</span>' : ''}</div><div class="d">${({ fix: 'Fixkosten', einnahme: 'Einnahme' })[k.kind] || 'Nutzungskosten'}${k.is_fuel ? ' · Tanken/Laden' : ''}</div></div><div class="amt">›</div></button>`).join('')}
+      ${[...S.d.categories].sort((a, b) => a.archived - b.archived || a.sort - b.sort).map((k) => `<button class="row" data-cat="${k.id}"><div class="ic">${ic(k.icon)}</div><div class="main"><div class="t">${esc(k.name)}${k.archived ? ' <span class="small muted">· ausgeblendet</span>' : ''}</div><div class="d">${({ fix: 'Fixkosten', einnahme: 'Einnahme' })[k.kind] || 'Nutzungskosten'}${k.is_fuel ? ' · Tanken/Laden' : ''}</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>`).join('')}
     </div><div class="btns"><button class="btn secondary" id="addcat">+ Eigene Kategorie</button></div></section>
 
     <section><h2>Gemeinsam nutzen</h2><div class="card">
@@ -1158,14 +1173,16 @@ function viewSettings(v) {
       <div class="small" style="margin-top:14px"><b>Zugriff haben:</b><br>${S.d.members.map((m) => esc(m.email || 'Unbekannt') + (m.user_id === me.id ? ' (du)' : '')).join('<br>')}</div>
     </div></section>
 
+    <section><h2>Darstellung</h2><div class="themes">${THEMES.map(([id, label, cols]) => `<button data-theme-set="${id}" class="${currentTheme() === id ? 'on' : ''}"><span class="sw">${cols.map((c) => `<i style="background:${c}"></i>`).join('')}</span>${label}</button>`).join('')}</div></section>
+
     <section><h2>Daten</h2><div class="list">
-      <button class="row" id="csv"><div class="ic">📄</div><div class="main"><div class="t">Einträge als Tabelle (CSV)</div><div class="d">Für Excel / Numbers</div></div></button>
-      <button class="row" id="json"><div class="ic">💾</div><div class="main"><div class="t">Komplette Sicherung (JSON)</div><div class="d">Alle Daten dieses Autos – regelmäßig machen!</div></div></button>
+      <button class="row" id="csv"><div class="ic">${ic('file-spreadsheet')}</div><div class="main"><div class="t">Einträge als Tabelle (CSV)</div><div class="d">Für Excel / Numbers</div></div></button>
+      <button class="row" id="json"><div class="ic">${ic('database')}</div><div class="main"><div class="t">Komplette Sicherung (JSON)</div><div class="d">Alle Daten dieses Autos – regelmäßig machen!</div></div></button>
     </div></section>
 
     <section><h2>Konto</h2><div class="list">
-      <button class="row" data-page="garage"><div class="ic">🚗</div><div class="main"><div class="t">Meine Autos</div><div class="d">Wechseln, neues Auto anlegen, beitreten</div></div><div class="amt">›</div></button>
-      <button class="row" id="logout"><div class="ic">👋</div><div class="main"><div class="t">Abmelden</div><div class="d">${esc(me.email)}</div></div></button>
+      <button class="row" data-page="garage"><div class="ic">${ic('car')}</div><div class="main"><div class="t">Meine Autos</div><div class="d">Wechseln, neues Auto anlegen, beitreten</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
+      <button class="row" id="logout"><div class="ic">${ic('log-out')}</div><div class="main"><div class="t">Abmelden</div><div class="d">${esc(me.email)}</div></div></button>
     </div></section>`;
 
   $('#editcar', v).onclick = openCarEdit;
@@ -1173,6 +1190,7 @@ function viewSettings(v) {
   $('#addcat', v).onclick = () => openCategory();
   $$('[data-cat]', v).forEach((b) => (b.onclick = () => openCategory(catById(b.dataset.cat))));
   bindInviteBox(v, c, render);
+  $$('[data-theme-set]', v).forEach((b) => (b.onclick = () => { setTheme(b.dataset.themeSet); render(); }));
   $('#csv', v).onclick = exportCsv;
   $('#json', v).onclick = exportJson;
   $('#logout', v).onclick = async () => { if (confirm('Abmelden?')) await sb.auth.signOut(); };
@@ -1241,7 +1259,7 @@ function openContract(k) {
   const running = k && (!k.end_date || parseDate(k.end_date) >= new Date());
   openSheet(k ? 'Wiederkehrende Kosten' : 'Neue wiederkehrende Kosten', `<form id="con">
     <label class="f"><span>Bezeichnung</span><input name="name" value="${esc(k?.name)}" placeholder="z. B. HUK Haftpflicht + TK" required></label>
-    <label class="f"><span>Kategorie</span><select name="cat">${cats.map((c) => `<option value="${c.id}" ${c.id === defCat ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>Kategorie</span><select name="cat">${cats.map((c) => `<option value="${c.id}" ${c.id === defCat ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
     <div class="grid2">
       <label class="f"><span>Betrag je Zahlung (€)</span><input name="amount" inputmode="decimal" value="${numIn(k?.amount)}" required></label>
       <label class="f"><span>Zahlweise</span><select name="int">${Object.entries(INTERVALS).map(([m, l]) => `<option value="${m}" ${Number(m) === (k?.interval_months ?? 12) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -1301,8 +1319,8 @@ function openContractChange(k) {
 
 function openCategory(k) {
   openSheet(k ? 'Kategorie bearbeiten' : 'Neue Kategorie', `<form id="cat">
-    <div class="grid2" style="grid-template-columns:80px 1fr">
-      <label class="f"><span>Symbol</span><input name="icon" value="${esc(k?.icon ?? '🔩')}" maxlength="4" style="text-align:center"></label>
+    ${iconPicker(CAT_ICONS, iconKey(k?.icon))}
+    <div>
       <label class="f"><span>Name</span><input name="name" value="${esc(k?.name)}" placeholder="z. B. Zubehör, Vignette" required></label>
     </div>
     <label class="f"><span>Art</span><select name="kind">
@@ -1316,7 +1334,7 @@ function openCategory(k) {
     const form = $('#cat', b);
     form.onsubmit = (ev) => {
       ev.preventDefault();
-      const row = { name: form.name.value.trim(), icon: form.icon.value.trim() || '•', kind: form.kind.value, is_fuel: form.fuel.checked };
+      const row = { name: form.name.value.trim(), icon: form.icon.value || 'tag', kind: form.kind.value, is_fuel: form.fuel.checked };
       if (k) row.archived = form.arch.checked;
       submitWith(form, () => (k ? q(sb.from('categories').update(row).eq('id', k.id))
         : q(sb.from('categories').insert({ ...row, car_id: S.carId, sort: 200 }))));
@@ -1334,14 +1352,14 @@ function openCategory(k) {
 //  Erinnerungen
 // ---------------------------------------------------------------------------
 const PRESETS = [
-  { key: 'tuv', icon: '📋', title: 'TÜV / HU', cat: 'TÜV', repeat_months: 24, hint: 'Monat steht auf der Plakette am Kennzeichen.' },
-  { key: 'oil', icon: '🛢️', title: 'Ölwechsel', cat: 'Öl', repeat_km: 15000, repeat_months: 12, plusKm: 15000, hint: 'Steht meist auf dem Aufkleber im Motorraum oder im Serviceheft.' },
-  { key: 'insp', icon: '🔧', title: 'Inspektion', cat: 'Wartung', repeat_months: 12, repeat_km: 20000, plusMonths: 12 },
-  { key: 'winter', icon: '❄️', title: 'Winterreifen drauf', cat: 'Reifen', repeat_months: 12, nextOn: [10, 15], hint: 'Faustregel: von O bis O – Oktober bis Ostern.' },
-  { key: 'summer', icon: '☀️', title: 'Sommerreifen drauf', cat: 'Reifen', repeat_months: 12, nextOn: [4, 15] },
-  { key: 'ins', icon: '🛡️', title: 'Versicherung vergleichen', cat: 'Versicherung', repeat_months: 12, nextOn: [11, 1], note: 'Wechselstichtag ist meist der 30.11.' },
-  { key: 'kit', icon: '🩹', title: 'Verbandskasten prüfen', repeat_months: 24, plusMonths: 24 },
-  { key: 'own', icon: '🔔', title: '', hint: '' },
+  { key: 'tuv', icon: 'clipboard-check', title: 'TÜV / HU', cat: 'TÜV', repeat_months: 24, hint: 'Monat steht auf der Plakette am Kennzeichen.' },
+  { key: 'oil', icon: 'droplet', title: 'Ölwechsel', cat: 'Öl', repeat_km: 15000, repeat_months: 12, plusKm: 15000, hint: 'Steht meist auf dem Aufkleber im Motorraum oder im Serviceheft.' },
+  { key: 'insp', icon: 'wrench', title: 'Inspektion', cat: 'Wartung', repeat_months: 12, repeat_km: 20000, plusMonths: 12 },
+  { key: 'winter', icon: 'snowflake', title: 'Winterreifen drauf', cat: 'Reifen', repeat_months: 12, nextOn: [10, 15], hint: 'Faustregel: von O bis O – Oktober bis Ostern.' },
+  { key: 'summer', icon: 'sun', title: 'Sommerreifen drauf', cat: 'Reifen', repeat_months: 12, nextOn: [4, 15] },
+  { key: 'ins', icon: 'shield', title: 'Versicherung vergleichen', cat: 'Versicherung', repeat_months: 12, nextOn: [11, 1], note: 'Wechselstichtag ist meist der 30.11.' },
+  { key: 'kit', icon: 'briefcase-medical', title: 'Verbandskasten prüfen', repeat_months: 24, plusMonths: 24 },
+  { key: 'own', icon: 'bell', title: '', hint: '' },
 ];
 function nextOn(month, day) {
   const t = new Date(); let d = new Date(t.getFullYear(), month - 1, day);
@@ -1367,9 +1385,9 @@ function dueText(r) {
 const LEVEL = { overdue: ['Überfällig', 'lv-over'], soon: ['Bald', 'lv-soon'], ok: ['', ''] };
 function reminderRow(r) {
   const [label, cls] = r.done_at ? ['Erledigt', 'lv-done'] : LEVEL[r.st.level];
-  return `<button class="row" data-rem="${r.id}"><div class="ic">${esc(r.icon)}</div>
+  return `<button class="row" data-rem="${r.id}"><div class="ic">${ic(r.icon)}</div>
     <div class="main"><div class="t">${esc(r.title)}</div><div class="d wrap">${r.done_at ? `erledigt am ${dDate(r.done_at)}` : dueText(r)}</div></div>
-    ${label ? `<span class="pill ${cls}">${label}</span>` : '<div class="amt">›</div>'}</button>`;
+    ${label ? `<span class="pill ${cls}">${label}</span>` : `<div class="amt">${ic('chevron-right', 'chev-i')}</div>`}</button>`;
 }
 function bindReminderRows(root) {
   $$('[data-rem]', root).forEach((b) => (b.onclick = () => openReminder(S.d.reminders.find((r) => r.id === b.dataset.rem))));
@@ -1382,7 +1400,7 @@ function viewReminders(v) {
   v.innerHTML = `
     <section><div class="list">${open.length ? open.map(reminderRow).join('') : '<div class="empty">Noch keine Erinnerungen.</div>'}</div>
       <div class="btns"><button class="btn" id="addr">+ Erinnerung</button></div></section>
-    <p class="small muted" style="margin:0 4px">Fällige Erinnerungen erscheinen oben in der Übersicht. Für eine echte Benachrichtigung aufs Handy: Erinnerung öffnen → „In den Kalender“.</p>
+    <p class="small muted" style="margin:0 4px">Fällige Erinnerungen erscheinen oben in der Übersicht. Für eine Benachrichtigung auf dem iPhone die Erinnerung öffnen und „In den Kalender“ wählen.</p>
     ${canBadge ? '<div class="btns"><button class="btn secondary" id="badge">Zähler am App-Symbol einschalten</button></div>' : ''}
     ${done.length ? `<section><h2>Erledigt</h2><div class="list">${done.map(reminderRow).join('')}</div></section>` : ''}`;
   $('#addr', v).onclick = () => openReminder();
@@ -1400,7 +1418,7 @@ function updateBadge() {
 
 function openReminder(r) {
   if (!r) {
-    openSheet('Neue Erinnerung', `<div class="choose">${PRESETS.map((p) => `<button data-p="${p.key}"><span class="i">${p.icon}</span>${p.title || 'Eigene'}</button>`).join('')}</div>`, (b) => {
+    openSheet('Neue Erinnerung', `<div class="choose">${PRESETS.map((p) => `<button data-p="${p.key}"><span class="i">${ic(p.icon)}</span>${p.title || 'Eigene'}</button>`).join('')}</div>`, (b) => {
       $$('[data-p]', b).forEach((x) => (x.onclick = () => reminderForm(null, PRESETS.find((p) => p.key === x.dataset.p))));
     });
     return;
@@ -1416,8 +1434,8 @@ function reminderForm(r, p = {}) {
   const dueKm = r ? r.due_km : p.plusKm ? Math.ceil((km + p.plusKm) / 100) * 100 : '';
   const st = r && reminderRows().find((x) => x.id === r.id)?.st;
   openSheet(r ? r.title : (p.title || 'Eigene Erinnerung'), `<form id="rem">
-    <div class="grid2" style="grid-template-columns:80px 1fr">
-      <label class="f"><span>Symbol</span><input name="icon" value="${esc(r?.icon ?? p.icon ?? '🔔')}" maxlength="4" style="text-align:center"></label>
+    ${iconPicker(REM_ICONS, iconKey(r?.icon ?? p.icon, 'bell'))}
+    <div>
       <label class="f"><span>Was?</span><input name="title" value="${esc(r?.title ?? p.title ?? '')}" placeholder="z. B. Pickerl erneuern" required></label>
     </div>
     ${p.hint ? `<p class="small muted" style="margin:-4px 2px 12px">${esc(p.hint)}</p>` : ''}
@@ -1429,12 +1447,12 @@ function reminderForm(r, p = {}) {
       <label class="f"><span>Wiederholen alle … Monate</span><input name="rm" inputmode="numeric" value="${r?.repeat_months ?? p.repeat_months ?? ''}" placeholder="nicht"></label>
       <label class="f"><span>… oder alle … km</span><input name="rk" inputmode="numeric" value="${r?.repeat_km ?? p.repeat_km ?? ''}" placeholder="nicht"></label>
     </div>
-    <label class="f"><span>Kategorie für die Kosten (optional)</span><select name="cat"><option value="">–</option>${cats.map((c) => `<option value="${c.id}" ${c.id === catId ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>Kategorie für die Kosten (optional)</span><select name="cat"><option value="">–</option>${cats.map((c) => `<option value="${c.id}" ${c.id === catId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
     <label class="f"><span>Notiz (optional)</span><input name="note" value="${esc(r?.note ?? p.note ?? '')}"></label>
     <div class="btns">
-      ${r && !r.done_at ? '<button type="button" class="btn" id="done">✓ Erledigt</button>' : ''}
+      ${r && !r.done_at ? `<button type="button" class="btn" id="done">${ic('check')} Erledigt</button>` : ''}
       <button class="btn ${r && !r.done_at ? 'secondary' : ''}" type="submit">Speichern</button>
-      ${r && !r.done_at && (r.due_date || st?.dueDate) ? '<button type="button" class="btn secondary" id="cal">📅 In den Kalender</button>' : ''}
+      ${r && !r.done_at && (r.due_date || st?.dueDate) ? `<button type="button" class="btn secondary" id="cal">${ic('calendar-plus')} In den Kalender</button>` : ''}
       ${r ? '<button type="button" class="btn danger" id="del">Löschen</button>' : ''}
     </div>
   </form>`, (b) => {
@@ -1443,7 +1461,7 @@ function reminderForm(r, p = {}) {
       const kmV = parseNum(form.km.value), rm = parseNum(form.rm.value), rk = parseNum(form.rk.value);
       if ([kmV, rm, rk].some((x) => Number.isNaN(x))) throw new Error('Bitte Zahlen prüfen');
       if (!form.date.value && kmV === null) throw new Error('Bitte ein Datum oder einen km-Stand angeben');
-      return { icon: form.icon.value.trim() || '🔔', title: form.title.value.trim(), due_date: form.date.value || null, due_km: kmV === null ? null : Math.round(kmV),
+      return { icon: form.icon.value || 'bell', title: form.title.value.trim(), due_date: form.date.value || null, due_km: kmV === null ? null : Math.round(kmV),
         repeat_months: rm ? Math.round(rm) : null, repeat_km: rk ? Math.round(rk) : null, category_id: form.cat.value || null, note: form.note.value.trim() || null };
     };
     form.onsubmit = (ev) => {
@@ -1471,7 +1489,7 @@ function reminderDone(r) {
       <label class="f"><span>Erledigt am</span><input name="date" type="date" value="${today()}" required></label>
       <label class="f"><span>km-Stand</span><input name="km" inputmode="numeric" value="${km}" required></label>
     </div>
-    ${cat ? `<label class="f"><span>Kosten (optional) → ${esc(cat.icon)} ${esc(cat.name)}</span><input name="amount" inputmode="decimal" placeholder="z. B. 139"></label>` : ''}
+    ${cat ? `<label class="f"><span>Kosten (optional) → ${esc(cat.name)}</span><input name="amount" inputmode="decimal" placeholder="z. B. 139"></label>` : ''}
     <div class="calc" id="nx"></div>
     <div class="btns"><button class="btn" type="submit">Fertig</button></div>
   </form>`, (b) => {
@@ -1491,7 +1509,7 @@ function reminderDone(r) {
         if (n) await q(sb.from('reminders').insert({ car_id: S.carId, title: r.title, icon: r.icon, category_id: r.category_id, note: r.note, repeat_months: r.repeat_months, repeat_km: r.repeat_km, ...n }));
         if (amount) await q(sb.from('expenses').insert({ car_id: S.carId, category_id: r.category_id, date: form.date.value, amount, km: Math.round(kmV), comment: r.title }));
         else await q(sb.from('odometer').insert({ car_id: S.carId, date: form.date.value, km: Math.round(kmV) }));
-        toast('Erledigt ✓');
+        toast('Erledigt');
       });
     };
   });
@@ -1506,7 +1524,7 @@ function addToCalendar(r, st) {
   const desc = [`${car().name}`, r.due_km ? `fällig bei ${fmt(r.due_km)} km` : '', r.note].filter(Boolean).join(' – ');
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Autokosten//DE', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
     `UID:${r.id}@autokosten`, `DTSTAMP:${stamp}`, `DTSTART:${ymd(d)}T090000`, `DTEND:${ymd(d)}T093000`,
-    `SUMMARY:${txt(`${r.icon} ${r.title} (${car().name})`)}`, `DESCRIPTION:${txt(desc)}`,
+    `SUMMARY:${txt(`${r.title} (${car().name})`)}`, `DESCRIPTION:${txt(desc)}`,
     'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${txt(r.title)}`, 'TRIGGER:-P7D', 'END:VALARM',
     'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${txt(r.title)}`, 'TRIGGER:-PT0M', 'END:VALARM',
     'END:VEVENT', 'END:VCALENDAR'].join('\r\n');

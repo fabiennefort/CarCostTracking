@@ -46,7 +46,7 @@ create table if not exists public.categories (
   name       text not null,
   kind       text not null default 'variabel' check (kind in ('fix','variabel','einnahme')),
   is_fuel    boolean not null default false,
-  icon       text not null default '•',
+  icon       text not null default 'tag',
   sort       integer not null default 100,
   archived   boolean not null default false,
   created_at timestamptz not null default now()
@@ -120,7 +120,7 @@ create table if not exists public.reminders (
   id             uuid primary key default gen_random_uuid(),
   car_id         uuid not null references public.cars(id) on delete cascade,
   title          text not null,
-  icon           text not null default '🔔',
+  icon           text not null default 'bell',
   category_id    uuid references public.categories(id) on delete set null,
   due_date       date,                -- fällig am (optional)
   due_km         integer,             -- fällig bei km-Stand (optional)
@@ -177,17 +177,17 @@ begin
   values (v_id, auth.uid(), auth.jwt() ->> 'email');
 
   insert into categories (car_id, name, kind, is_fuel, icon, sort) values
-    (v_id, case when p_fuel_unit = 'kWh' then 'Laden' else 'Tanken' end, 'variabel', true, '⛽', 10),
-    (v_id, 'Öl',                 'variabel', false, '🛢️', 20),
-    (v_id, 'Wartung/Inspektion', 'variabel', false, '🔧', 30),
-    (v_id, 'Reparatur',          'variabel', false, '🛠️', 40),
-    (v_id, 'Reifen',             'variabel', false, '🛞', 50),
-    (v_id, 'Wäsche/Pflege',      'variabel', false, '🧽', 60),
-    (v_id, 'Parken/Maut',        'variabel', false, '🅿️', 70),
-    (v_id, 'TÜV/HU',             'fix',      false, '📋', 80),
-    (v_id, 'Versicherung',       'fix',      false, '🛡️', 90),
-    (v_id, 'Kfz-Steuer',         'fix',      false, '🏛️', 100),
-    (v_id, 'Spritgeld (Mitfahrer)', 'einnahme', false, '🤝', 300);
+    (v_id, case when p_fuel_unit = 'kWh' then 'Laden' else 'Tanken' end, 'variabel', true, case when p_fuel_unit = 'kWh' then 'plug-zap' else 'fuel' end, 10),
+    (v_id, 'Öl',                 'variabel', false, 'droplet', 20),
+    (v_id, 'Wartung/Inspektion', 'variabel', false, 'wrench', 30),
+    (v_id, 'Reparatur',          'variabel', false, 'hammer', 40),
+    (v_id, 'Reifen',             'variabel', false, 'disc', 50),
+    (v_id, 'Wäsche/Pflege',      'variabel', false, 'spray-can', 60),
+    (v_id, 'Parken/Maut',        'variabel', false, 'square-parking', 70),
+    (v_id, 'TÜV/HU',             'fix',      false, 'clipboard-check', 80),
+    (v_id, 'Versicherung',       'fix',      false, 'shield', 90),
+    (v_id, 'Kfz-Steuer',         'fix',      false, 'landmark', 100),
+    (v_id, 'Spritgeld (Mitfahrer)', 'einnahme', false, 'hand-coins', 300);
 
   -- Start-km-Stand als erster Eintrag
   insert into odometer (car_id, date, km, created_by)
