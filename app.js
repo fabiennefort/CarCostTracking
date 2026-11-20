@@ -35,10 +35,25 @@ function toast(msg, ms = 2200) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms);
 }
+const MSG = [
+  [/Invalid login credentials/i, 'E-Mail oder Passwort falsch.'],
+  [/Signups not allowed|signup.*disabled/i, 'Neue Registrierungen sind gesperrt. Bitte in Supabase kurz freischalten.'],
+  [/User already registered/i, 'Für diese E-Mail gibt es schon ein Konto. Bitte anmelden.'],
+  [/Password should be at least/i, 'Das Passwort muss mindestens 6 Zeichen haben.'],
+  [/Email not confirmed/i, 'Bitte zuerst die E-Mail bestätigen.'],
+  [/invalid.*email|Unable to validate email/i, 'Bitte eine gültige E-Mail-Adresse eingeben.'],
+  [/rate limit/i, 'Zu viele Versuche. Bitte kurz warten.'],
+  [/Failed to fetch|NetworkError|Load failed/i, 'Keine Verbindung. Bitte Internet prüfen.'],
+  [/JWT expired/i, 'Sitzung abgelaufen. Bitte neu anmelden.'],
+];
 function fail(err) {
+  if (err?.silent) return;
   console.error(err);
-  toast(err?.message ? `Fehler: ${err.message}` : 'Etwas ist schiefgelaufen', 4000);
+  const m = String(err?.message || '');
+  const hit = MSG.find(([re]) => re.test(m));
+  toast(hit ? hit[1] : m ? `Fehler: ${m}` : 'Etwas ist schiefgelaufen', 4500);
 }
+const cancelled = () => Object.assign(new Error('abgebrochen'), { silent: true });
 
 // ---------------------------------------------------------------------------
 //  Supabase & Zustand
@@ -171,7 +186,7 @@ function renderNotConfigured() {
   $('#app').innerHTML = `<div class="auth">
     <img class="logo" src="icons/icon-192.png" alt="">
     <h1>Fast geschafft</h1>
-    <p class="sub">Trage in <b>config.js</b> die Projekt-URL und den anon-Schlüssel deines Supabase-Projekts ein (siehe Anleitung, Schritt 3).</p>
+    <p class="sub">Trage in <b>config.js</b> die Project URL und den Publishable key deines Supabase-Projekts ein (siehe Anleitung, Schritt 3).</p>
   </div>`;
 }
 
@@ -202,7 +217,7 @@ function renderAuth() {
         if (!data.session) toast('Konto erstellt. Bitte E-Mail bestätigen und dann anmelden.', 5000);
       }
     } catch (e) {
-      fail(e.message?.includes('Invalid login') ? { message: 'E-Mail oder Passwort falsch' } : e);
+      fail(e);
     } finally { busy(ev.target, false); }
   };
 }
@@ -639,7 +654,7 @@ function viewHome(v) {
 
     <section class="tiles">
       <button class="tile tap" data-go="fuel:km"><div class="k">Gefahren</div><div class="v num">${fmt(st.kmDriven)} km</div><div class="s">Stand ${fmt(st.kmNow)} km</div></button>
-      <button class="tile tap" data-go="costs:contracts"><div class="k">Fixkosten</div><div class="v num">${eur(st.fixPerMonth, 0)}<span class="small"> /Monat</span></div><div class="s">Versicherung, Steuer, TÜV</div></button>
+      <button class="tile tap" data-go="costs:contracts"><div class="k">Fixkosten</div><div class="v num">${eur(st.fixPerMonth, 0)}<span class="small"> /Monat</span></div><div class="s">laufend, inkl. TÜV anteilig</div></button>
       <button class="tile tap" data-go="costs:stats"><div class="k">Nutzungskosten</div><div class="v num">${perKm(st.perKm.variable)}<span class="small"> /km</span></div><div class="s">Sprit, Reparaturen …</div></button>
       <button class="tile tap" data-go="fuel:stats"><div class="k">Verbrauch (6 Mon.)</div><div class="v num">${st.fuel.last6 ? fmt(st.fuel.last6.per100, 1) : '–'}<span class="small"> ${u}/100</span></div><div class="s">Ø gesamt ${st.fuel.total ? fmt(st.fuel.total.per100, 1) : '–'}</div></button>
     </section>
@@ -713,15 +728,18 @@ function costsEntries(v) {
 
 function costsContracts(v) {
   const st = stats();
-  const isEnded = (k) => k.end_date && parseDate(k.end_date) < new Date();
-  const running = st.contracts.filter((k) => !isEnded(k)), ended = st.contracts.filter(isEnded);
-  const perMonth = running.reduce((a, k) => a + (catById(k.category_id)?.kind === 'einnahme' ? -1 : 1) * k.perMonth, 0);
-  const row = (k) => `<button class="row" data-k="${k.id}"><div class="ic">${ic(catById(k.category_id)?.icon || 'repeat')}</div><div class="main"><div class="t">${esc(k.name)}</div><div class="d">${eur(k.amount)} ${INTERVALS[k.interval_months]} · ab ${dDate(k.start_date)}${k.end_date ? ` bis ${dDate(k.end_date)}` : ''}</div></div><div class="amt num">${eur(k.perMonth)}<div class="d">pro Monat</div></div></button>`;
+  const isEnded = (k) => k.end_date && parseDate(k.end_date) < parseDate(today());
+  const running = st.contracts.filter((k) => k.running);
+  const upcoming = st.contracts.filter((k) => !k.running && !isEnded(k));
+  const ended = st.contracts.filter(isEnded);
+  const perMonth = running.reduce((a, k) => a + (k.kind === 'einnahme' ? -1 : 1) * k.perMonth, 0);
+  const row = (k) => `<button class="row" data-k="${k.id}"><div class="ic">${ic(catById(k.category_id)?.icon || 'repeat')}</div><div class="main"><div class="t">${esc(k.name)}</div><div class="d">${eur(k.amount)} ${INTERVALS[k.interval_months]} · ab ${dDate(k.start_date)}${k.end_date ? ` bis ${dDate(k.end_date)}` : ''}</div></div><div class="amt num${k.kind === 'einnahme' ? ' pos' : ''}">${k.kind === 'einnahme' ? '+ ' : ''}${eur(k.perMonth)}<div class="d">pro Monat</div></div></button>`;
   v.innerHTML = `
     <p class="small muted" style="margin:4px 4px 12px">Versicherung, Steuer & Co. einmal anlegen – die Zahlungen zählen automatisch mit. Ändert sich der Beitrag, den Eintrag antippen und „Betrag ändert sich ab …“ wählen.</p>
     <section>${sectionHead('Laufend', running.length ? `<span class="small muted num">${eur(perMonth)} / Monat</span>` : '')}
       <div class="list">${running.length ? running.map(row).join('') : '<div class="empty">z. B. Versicherung, Kfz-Steuer, ADAC</div>'}</div>
       <div class="btns"><button class="btn secondary" id="addk">+ Wiederkehrende Kosten</button></div></section>
+    ${upcoming.length ? `<section><h2>Geplante Änderungen</h2><div class="list">${upcoming.map(row).join('')}</div></section>` : ''}
     ${ended.length ? `<section><h2>Frühere Beträge</h2><div class="list">${ended.map(row).join('')}</div></section>` : ''}`;
   $('#addk', v).onclick = () => openContract();
   $$('[data-k]', v).forEach((b) => (b.onclick = () => openContract(S.d.contracts.find((k) => k.id === b.dataset.k))));
@@ -916,6 +934,18 @@ function openAddChooser() {
   });
 }
 const lastKm = () => computeStats({ car: car(), ...S.d }).kmNow;
+/** Prüft einen km-Stand: nicht unter dem Startwert, große Sprünge bestätigen lassen. */
+function checkKm(km, prev = null) {
+  const start = Number(car().start_km) || 0;
+  const last = prev ?? lastKm();
+  if (km < start) throw new Error(`Der km-Stand liegt unter dem Startwert von ${fmt(start)} km.`);
+  if (km > last + 30000 && !confirm(`${fmt(km)} km sind ${fmt(km - last)} km mehr als der letzte Stand (${fmt(last)} km). Stimmt das?`)) throw cancelled();
+}
+function checkAmount(a, label = 'Betrag') {
+  if (a === null || Number.isNaN(a)) throw new Error(`Bitte ${label} prüfen.`);
+  if (a <= 0) throw new Error(`${label} muss größer als 0 sein.`);
+  if (a > 50000 && !confirm(`${eur(a)} – stimmt der Betrag?`)) throw cancelled();
+}
 
 function receiptField(e) {
   return `<div class="f"><span>Beleg (optional)</span>
@@ -931,7 +961,7 @@ function deleteBtn(e) { return e ? '<button type="button" class="btn danger" id=
 function openFuel(e) {
   const u = unit(), ul = unitLong();
   const fuelCat = activeCats().find((c) => c.is_fuel) || S.d.categories.find((c) => c.is_fuel);
-  if (!fuelCat) return toast('Keine Tank-Kategorie vorhanden – bitte unter „Auto“ anlegen.');
+  if (!fuelCat) return toast('Keine Tank-Kategorie vorhanden – bitte unter Einstellungen → Kategorien anlegen.');
   const fuelCats = S.d.categories.filter((c) => c.is_fuel && (!c.archived || c.id === e?.category_id));
   openSheet(e ? 'Tankung bearbeiten' : (u === 'kWh' ? 'Laden' : 'Tanken'), `<form id="fuel">
     <div class="grid2">
@@ -940,10 +970,10 @@ function openFuel(e) {
     </div>
     <div class="calc" id="ppl"></div>
     <label class="f"><span>km-Stand</span><input name="km" inputmode="numeric" value="${e?.km ?? ''}" placeholder="zuletzt ${fmt(lastKm())}" required></label>
-    <div class="grid2">
+    ${fuelCats.length > 1 ? `<div class="grid2">
       <label class="f"><span>Datum</span><input name="date" type="date" value="${e?.date ?? today()}" required></label>
-      ${fuelCats.length > 1 ? `<label class="f"><span>Kategorie</span><select name="cat">${fuelCats.map((c) => `<option value="${c.id}" ${c.id === (e?.category_id ?? fuelCat.id) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : `<input type="hidden" name="cat" value="${fuelCat.id}">`}
-    </div>
+      <label class="f"><span>Kategorie</span><select name="cat">${fuelCats.map((c) => `<option value="${c.id}" ${c.id === (e?.category_id ?? fuelCat.id) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+    </div>` : `<label class="f"><span>Datum</span><input name="date" type="date" value="${e?.date ?? today()}" required></label><input type="hidden" name="cat" value="${fuelCat.id}">`}
     <label class="f"><span>Kommentar (optional)</span><input name="comment" value="${esc(e?.comment)}" placeholder="z. B. Urlaubsfahrt, Autobahn"></label>
     ${receiptField(e)}
     <div class="btns"><button class="btn" type="submit">Speichern</button>${deleteBtn(e)}</div>
@@ -956,7 +986,11 @@ function openFuel(e) {
     form.amount.oninput = form.liters.oninput = upd; upd();
     bindExpenseCommon(b, form, e, () => {
       const amount = parseNum(form.amount.value), liters = parseNum(form.liters.value), km = parseNum(form.km.value);
-      if ([amount, liters, km].some((x) => x === null || Number.isNaN(x))) throw new Error('Bitte Betrag, Menge und km-Stand prüfen');
+      if ([amount, liters, km].some((x) => x === null || Number.isNaN(x))) throw new Error('Bitte Betrag, Menge und km-Stand prüfen.');
+      checkAmount(amount);
+      checkAmount(liters, u === 'kWh' ? 'Die Menge' : 'Die Literzahl');
+      if (u === 'l' && liters > 150 && !confirm(`${fmt(liters, 2)} Liter auf einmal – stimmt das?`)) throw cancelled();
+      if (!e || Number(e.km) !== Math.round(km)) checkKm(km);
       return { category_id: form.cat.value, amount, liters, km: Math.round(km), date: form.date.value, comment: form.comment.value.trim() || null };
     });
   });
@@ -1005,7 +1039,9 @@ function openExpense(e, mode) {
     }
     bindExpenseCommon(b, form, e, () => {
       const amount = parseNum(form.amount.value), km = income ? null : parseNum(form.km.value);
-      if (amount === null || Number.isNaN(amount) || Number.isNaN(km)) throw new Error('Bitte Betrag und km prüfen');
+      if (Number.isNaN(km)) throw new Error('Bitte den km-Stand prüfen.');
+      checkAmount(amount);
+      if (km !== null && (!e || Number(e.km) !== Math.round(km))) checkKm(km);
       const kind = catById(form.cat.value)?.kind || 'variabel';
       return {
         category_id: form.cat.value, amount, km: km === null ? null : Math.round(km), liters: null,
@@ -1059,6 +1095,7 @@ function openKm(o) {
       const km = parseNum(form.km.value);
       if (km === null || Number.isNaN(km)) return toast('Bitte km-Stand prüfen');
       submitWith(form, async () => {
+        if (!o || Number(o.km) !== Math.round(km)) checkKm(km);
         const row = { km: Math.round(km), date: form.date.value };
         if (o) await q(sb.from('odometer').update(row).eq('id', o.id));
         else await q(sb.from('odometer').insert({ ...row, car_id: S.carId }));
@@ -1155,7 +1192,7 @@ function viewSettings(v) {
   const me = S.session.user;
   v.innerHTML = `
     <section><h2>Auto</h2><div class="list">
-      <button class="row" id="editcar"><div class="ic">${ic('car-front')}</div><div class="main"><div class="t">${esc(c.name)}</div><div class="d">Gekauft ${dDate(c.purchase_date)} · ${eur(c.purchase_price, 0)} · ${fmt(c.start_km)} km</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
+      <button class="row" id="editcar"><div class="ic">${ic('car-front')}</div><div class="main"><div class="t">${esc(c.name)}</div><div class="d">seit ${dDate(c.purchase_date)} · ${eur(c.purchase_price, 0)} · ${fmt(c.start_km)} km</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
       <button class="row" id="editval"><div class="ic">${ic('trending-down')}</div><div class="main"><div class="t">${c.sale_price != null ? 'Verkauft' : 'Restwert / Verkauf'}</div><div class="d">${c.sale_price != null ? `${dDate(c.sale_date)} für ${eur(c.sale_price, 0)}` : c.residual_value != null ? `Geschätzt ${eur(c.residual_value, 0)}` : 'Noch nicht eingetragen'}</div></div><div class="amt">${ic('chevron-right', 'chev-i')}</div></button>
     </div></section>
 
@@ -1201,10 +1238,10 @@ function openCarEdit() {
   openSheet('Auto bearbeiten', `<form id="car">
     <label class="f"><span>Name</span><input name="name" value="${esc(c.name)}" required></label>
     <div class="grid2">
-      <label class="f"><span>Kaufdatum</span><input name="date" type="date" value="${c.purchase_date}" required></label>
-      <label class="f"><span>Kaufpreis (€)</span><input name="price" inputmode="decimal" value="${numIn(c.purchase_price)}" required></label>
+      <label class="f"><span>Kauf- bzw. Startdatum</span><input name="date" type="date" value="${c.purchase_date}" required></label>
+      <label class="f"><span>Kaufpreis bzw. Startwert (€)</span><input name="price" inputmode="decimal" value="${numIn(c.purchase_price)}" required></label>
     </div>
-    <label class="f"><span>km-Stand beim Kauf</span><input name="km" inputmode="numeric" value="${c.start_km}" required></label>
+    <label class="f"><span>km-Stand zu Beginn</span><input name="km" inputmode="numeric" value="${c.start_km}" required></label>
     <label class="f"><span>Antrieb</span><select name="unit"><option value="l" ${c.fuel_unit === 'l' ? 'selected' : ''}>Verbrenner (Liter)</option><option value="kWh" ${c.fuel_unit === 'kWh' ? 'selected' : ''}>Elektro (kWh)</option></select></label>
     <div class="btns"><button class="btn" type="submit">Speichern</button>${c.created_by === S.session.user.id ? '<button type="button" class="btn danger" id="del">Auto komplett löschen</button>' : ''}</div>
   </form>`, (b) => {
@@ -1213,12 +1250,18 @@ function openCarEdit() {
       ev.preventDefault();
       const price = parseNum(form.price.value), km = parseNum(form.km.value);
       if ([price, km].some((x) => x === null || Number.isNaN(x))) return toast('Bitte Zahlen prüfen');
-      submitWith(form, () => q(sb.from('cars').update({ name: form.name.value.trim(), purchase_date: form.date.value, purchase_price: price, start_km: Math.round(km), fuel_unit: form.unit.value }).eq('id', c.id)));
+      submitWith(form, async () => {
+        await q(sb.from('cars').update({ name: form.name.value.trim(), purchase_date: form.date.value, purchase_price: price, start_km: Math.round(km), fuel_unit: form.unit.value }).eq('id', c.id));
+        // Den automatisch angelegten Start-km-Eintrag mit anpassen
+        const startEntry = S.d.odometer.find((o) => o.date === c.purchase_date && Number(o.km) === Number(c.start_km));
+        if (startEntry) await q(sb.from('odometer').update({ date: form.date.value, km: Math.round(km) }).eq('id', startEntry.id));
+      });
     };
     const del = $('#del', b);
     if (del) del.onclick = async () => {
-      const typed = prompt(`Wirklich ALLES zu „${c.name}“ löschen (auch für deine Partnerin)? Zum Bestätigen den Namen eintippen:`);
-      if (typed !== c.name) return;
+      const typed = prompt(`Wirklich ALLES zu „${c.name}“ löschen (auch für alle, mit denen du es teilst)? Zum Bestätigen den Namen eintippen:`);
+      if (typed === null) return;
+      if (typed.trim() !== c.name) return toast('Name stimmt nicht – nichts gelöscht.');
       submitWith(form, async () => {
         const paths = [...S.d.photos.map((p) => p.path), ...S.d.expenses.filter((e) => e.receipt_path).map((e) => e.receipt_path)];
         if (paths.length) await sb.storage.from('photos').remove(paths);
@@ -1280,7 +1323,8 @@ function openContract(k) {
     form.onsubmit = (ev) => {
       ev.preventDefault();
       const amount = parseNum(form.amount.value);
-      if (amount === null || Number.isNaN(amount)) return toast('Bitte Betrag prüfen');
+      if (amount === null || Number.isNaN(amount) || amount <= 0) return toast('Bitte einen Betrag größer als 0 eingeben');
+      if (form.end.value && form.end.value < form.start.value) return toast('Das Enddatum liegt vor der ersten Zahlung');
       const row = { name: form.name.value.trim(), category_id: form.cat.value, amount, interval_months: Number(form.int.value), start_date: form.start.value, end_date: form.end.value || null };
       submitWith(form, () => (k ? q(sb.from('contracts').update(row).eq('id', k.id)) : q(sb.from('contracts').insert({ ...row, car_id: S.carId }))));
     };
@@ -1304,7 +1348,7 @@ function openContractChange(k) {
     form.onsubmit = (ev) => {
       ev.preventDefault();
       const amount = parseNum(form.amount.value);
-      if (amount === null || Number.isNaN(amount)) return toast('Bitte Betrag prüfen');
+      if (amount === null || Number.isNaN(amount) || amount <= 0) return toast('Bitte einen Betrag größer als 0 eingeben');
       const start = parseDate(form.start.value);
       if (start <= parseDate(k.start_date)) return toast('Datum muss nach der ersten Zahlung liegen');
       const dayBefore = isoDate(new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1));
@@ -1504,6 +1548,8 @@ function reminderDone(r) {
       const kmV = parseNum(form.km.value), amount = form.amount ? parseNum(form.amount.value) : null;
       if (kmV === null || Number.isNaN(kmV) || Number.isNaN(amount)) return toast('Bitte Zahlen prüfen');
       submitWith(form, async () => {
+        if (Math.round(kmV) !== km) checkKm(kmV);
+        if (amount !== null) checkAmount(amount);
         await q(sb.from('reminders').update({ done_at: form.date.value }).eq('id', r.id));
         const n = nextReminder(r, form.date.value, kmV);
         if (n) await q(sb.from('reminders').insert({ car_id: S.carId, title: r.title, icon: r.icon, category_id: r.category_id, note: r.note, repeat_months: r.repeat_months, repeat_km: r.repeat_km, ...n }));
@@ -1560,7 +1606,7 @@ function exportCsv() {
     const c = catById(e.category_id);
     rows.push([e.date, c?.name, e.kind_override || c?.kind, n(e.amount), n(e.liters), e.km ?? '', e.comment]);
   }
-  for (const k of computeStats({ car: car(), ...S.d }).contracts) rows.push(['', `${catById(k.category_id)?.name} – ${k.name}`, 'fix', n(k.paid), '', '', `${k.payments} Zahlungen bisher`]);
+  for (const k of computeStats({ car: car(), ...S.d }).contracts) rows.push([k.start_date, `${catById(k.category_id)?.name} – ${k.name}`, k.kind, n(k.paid), '', '', `wiederkehrend ${INTERVALS[k.interval_months]}, ${k.payments} Zahlungen bisher`]);
   for (const o of [...S.d.odometer].sort((a, b) => (a.date < b.date ? -1 : 1))) rows.push([o.date, 'km-Stand', '', '', '', o.km, '']);
   saveFile(`Autokosten_${slug()}_${today()}.csv`, '﻿' + rows.map((r) => r.map(cell).join(';')).join('\r\n'), 'text/csv');
 }

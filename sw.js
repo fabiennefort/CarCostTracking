@@ -1,6 +1,6 @@
 // Service Worker: App lädt schnell und startet auch bei schlechtem Netz.
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
-const CACHE = 'autokosten-v5';
+const CACHE = 'autokosten-v6';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './stats.js', './icons.js', './config.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png'];
 

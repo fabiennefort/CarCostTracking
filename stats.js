@@ -20,8 +20,13 @@ export function addMonths(d, n) {
 }
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-/** Alle fälligen Zahlungen eines Vertrags bis einschließlich `until`. */
-export function contractPayments(c, until) {
+/**
+ * Alle fälligen Zahlungen eines Vertrags bis einschließlich `until`.
+ * Mit `from` (Kauf-/Startdatum) zählen nur Zahlungen ab diesem Tag; eine Zahlung,
+ * deren Zeitraum den Start überspannt, zählt anteilig (z. B. Jahresbeitrag im Januar,
+ * Erfassung ab November → 2/12 des Beitrags).
+ */
+export function contractPayments(c, until, from = null) {
   const out = [];
   const start = parseDate(c.start_date);
   const end = c.end_date ? parseDate(c.end_date) : null;
@@ -30,10 +35,33 @@ export function contractPayments(c, until) {
     const d = addMonths(start, i * step);
     if (d > until) break;
     if (end && d > end) break;
-    out.push({ date: d, amount: Number(c.amount) });
+    let amount = Number(c.amount);
+    if (from && d < from) {
+      const periodEnd = addMonths(start, (i + 1) * step);
+      if (periodEnd <= from) continue;
+      amount *= (periodEnd - from) / (periodEnd - d);
+      out.push({ date: from, amount, partial: true });
+      continue;
+    }
+    out.push({ date: d, amount });
   }
   return out;
 }
+
+/**
+ * Aktuell laufende Verträge zum Stichtag: begonnen und nicht beendet.
+ * Ein Vertrag, der erst in der Zukunft beginnt, zählt nur, wenn es keinen
+ * laufenden Vorgänger gleichen Namens in derselben Kategorie gibt
+ * (sonst würde eine angekündigte Beitragsänderung doppelt gezählt).
+ */
+export function runningContracts(contracts, at) {
+  const active = (c) => !c.end_date || parseDate(c.end_date) >= new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  const started = contracts.filter((c) => active(c) && parseDate(c.start_date) <= at);
+  const future = contracts.filter((c) => active(c) && parseDate(c.start_date) > at
+    && !started.some((x) => x.name === c.name && x.category_id === c.category_id));
+  return [...started, ...future];
+}
+export const monthlyShare = (c) => Number(c.amount) / (Number(c.interval_months) || 12);
 
 /** Aktueller km-Stand: höchster bekannter Wert. */
 export function currentKm(car, expenses = [], odometer = []) {
@@ -87,18 +115,18 @@ export function computeStats({ car, categories = [], expenses = [], odometer = [
     byCat.set(catId, row);
   };
 
-  let variable = 0, fix = 0, income = 0;
+  let variable = 0, fix = 0, income = 0, fixSingle = 0;
   for (const e of expenses) {
     const amt = Number(e.amount) || 0;
     if (catById[e.category_id]?.kind === 'einnahme') { income += amt; bump(e.category_id, amt, 'einnahme'); continue; }
     const kind = e.kind_override || catById[e.category_id]?.kind || 'variabel';
-    if (kind === 'fix') fix += amt; else variable += amt;
+    if (kind === 'fix') { fix += amt; fixSingle += amt; } else variable += amt;
     bump(e.category_id, amt, kind);
   }
   let contractTotal = 0;
   const contractRows = [];
   for (const c of contracts) {
-    const pays = contractPayments(c, end);
+    const pays = contractPayments(c, end, purchase);
     const s = pays.reduce((a, p) => a + p.amount, 0);
     contractTotal += s;
     const kind = catById[c.category_id]?.kind || 'fix';
@@ -111,8 +139,20 @@ export function computeStats({ car, categories = [], expenses = [], odometer = [
       row.sum += s; row.count += pays.length;
       byCat.set(c.category_id, row);
     }
-    contractRows.push({ ...c, paid: s, payments: pays.length, perMonth: Number(c.amount) / (Number(c.interval_months) || 12) });
+    contractRows.push({ ...c, kind, paid: s, payments: pays.length, perMonth: monthlyShare(c) });
   }
+  // Laufende Verträge (Monatsanteil) – Grundlage für "pro Monat"
+  const running = runningContracts(contracts, end);
+  const runningIds = new Set(running.map((c) => c.id));
+  contractRows.forEach((r) => { r.running = runningIds.has(r.id); });
+  const kindOf = (c) => catById[c.category_id]?.kind || 'fix';
+  const contractFixMonthly = running.filter((c) => kindOf(c) === 'fix').reduce((a, c) => a + monthlyShare(c), 0);
+  const contractVarMonthly = running.filter((c) => kindOf(c) === 'variabel').reduce((a, c) => a + monthlyShare(c), 0);
+  const contractIncMonthly = running.filter((c) => kindOf(c) === 'einnahme').reduce((a, c) => a + monthlyShare(c), 0);
+  // Einzelne Fixkosten (z. B. TÜV) über mindestens 12 Monate verteilen,
+  // damit ein frisch angelegtes Auto keine aufgeblähten Monatswerte zeigt.
+  const spread = Math.max(12, months);
+  const fixPerMonth = contractFixMonthly + fixSingle / spread;
 
   const operating = variable + fix;
   const pp = Number(car.purchase_price) || 0;
@@ -164,7 +204,7 @@ export function computeStats({ car, categories = [], expenses = [], odometer = [
     const step = Number(c.interval_months) || 12;
     const ck = catById[c.category_id]?.kind;
     const kind = ck === 'variabel' ? 'variabel' : ck === 'einnahme' ? 'einnahme' : 'fix';
-    for (const p of contractPayments(c, end)) {
+    for (const p of contractPayments(c, end, purchase)) {
       for (let k = 0; k < step; k++) {
         const r = idx[monthKey(addMonths(new Date(p.date.getFullYear(), p.date.getMonth(), 1), k))];
         if (r) r[kind] += p.amount / step;
@@ -183,8 +223,8 @@ export function computeStats({ car, categories = [], expenses = [], odometer = [
       withDepreciation: depreciation === null ? null : perKm(operating + depreciation),
       withPurchase: perKm(operating + pp),
     },
-    fixPerMonth: fix / Math.max(1, months),
-    totalPerMonth: (operating + (depreciation ?? 0)) / Math.max(1, months),
+    fixPerMonth,
+    contractMonthly: { fix: contractFixMonthly, variabel: contractVarMonthly, einnahme: contractIncMonthly },
     byCategory: [...byCat.values()].sort((a, b) => b.sum - a.sum),
     contracts: contractRows,
     fuel: { total: fuelTotal, last6: fuel6, litersTotal, fuelCost, series: fuelSeries, count: fills.length },
@@ -249,10 +289,18 @@ export function costView(st, f = DEFAULT_FILTER) {
   if (f.fix) total += st.fix;
   if (f.wertverlust && st.depreciation !== null) total += st.depreciation;
   if (f.einnahmen) total -= st.income;
+  // Pro Monat: Fixkosten als laufender Monatswert, alles andere als Durchschnitt
+  // seit Start (mindestens über einen Monat gerechnet).
+  const m = Math.max(1, st.months);
+  let perMonth = 0;
+  if (f.variabel) perMonth += st.variable / m;
+  if (f.fix) perMonth += st.fixPerMonth;
+  if (f.wertverlust && st.depreciation !== null) perMonth += st.depreciation / m;
+  if (f.einnahmen) perMonth -= st.income / m;
   return {
     total,
     perKm: st.kmDriven > 0 ? total / st.kmDriven : null,
-    perMonth: total / Math.max(1, st.months),
+    perMonth,
     missingDepreciation: !!f.wertverlust && st.depreciation === null,
   };
 }
